@@ -119,6 +119,8 @@ namespace OpenFieldReader
 			public Point BottomRight { get; set; }
 		}
 
+		// Transput OpenFieldReaderOptions into class variables
+		// rename their references accordingly
 		public static OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
 		{
 			// Debug image.
@@ -128,7 +130,22 @@ namespace OpenFieldReader
 				debugImg = new int[row, col];
 				for (int y = 0; y < row; y++)
 					for (int x = 0; x < col; x++)
-						debugImg[y, x] = 0;
+						debugImg[y, x] = imgData[y*x];
+
+				using (var image = new Image<Rgba32>(col, row))
+				{
+					AssignColor(debugImg, true);
+
+					for (int y = 0; y < row; y++)
+					{
+						for (int x = 0; x < col; x++)
+						{
+							int preProcessPx = imgData[y + x * row];
+							image[x, y] = new Rgba32(preProcessPx, preProcessPx, preProcessPx);
+						}
+					}
+					image.Save("debug_pre_process.jpg");
+				}
 			}
 			
 			// We are seaching for pattern!
@@ -167,6 +184,7 @@ namespace OpenFieldReader
 					}
 					else
 					{
+						// Also check for empty
 						if (listJunctionX != null)
 						{
 							if (proximityCounter < maxProximity)

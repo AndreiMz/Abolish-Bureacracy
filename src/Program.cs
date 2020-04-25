@@ -34,6 +34,7 @@ namespace OpenFieldReader
 						int row = image.Height;
 						int col = image.Width;
 						
+						// refactor imgData as 2 dimensional array
 						int[] imgData = new int[row * col];
 						for (int y = 0; y < row; y++)
 						{
@@ -41,7 +42,7 @@ namespace OpenFieldReader
 							{
 								var pixel = image[x, y];
 								var val = pixel.R | pixel.G | pixel.B;
-								imgData[y + x * row] = val > 122 ? 0 : 255;
+								imgData[y + x * row] = val > 215 ? 0 : 255;
 							}
 						}
 
