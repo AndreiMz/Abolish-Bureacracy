@@ -1,0 +1,2 @@
+chown -R root:root /usr/bin/openfieldreader
+chown -R root:root /usr/bin/openfieldreaderbin/
