@@ -77,18 +77,11 @@ namespace OpenFieldReader
 			}
 		}
 			
-
 		public static OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
 		{
 			// Debug image.
-			int[,] debugImg = null;
-			if (options.GenerateDebugImage)
-			{
-				debugImg = new int[row, col];
-				for (int y = 0; y < row; y++)
-					for (int x = 0; x < col; x++)
-						debugImg[y, x] = 0;
-			}
+			Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
+			
 			
 			// We are seaching for pattern!
 			// We look for junctions.
@@ -652,34 +645,9 @@ namespace OpenFieldReader
 				}
 			}
 
-			nextGroupId = 0;
-
 			if (options.GenerateDebugImage)
 			{
-				foreach (var item in lineClusters)
-				{
-					nextGroupId++;
-					foreach (var junction in item.Junctions)
-					{
-						DrawJunction(debugImg, nextGroupId, junction);
-					}
-				}
-
-				foreach (var item in boxesClusters)
-				{
-					nextGroupId++;
-
-					// Debug img:
-					foreach (var junction in item.TopLine.Junctions)
-					{
-						DrawJunction(debugImg, nextGroupId, junction);
-					}
-
-					foreach (var junction in item.BottomLine.Junctions)
-					{
-						DrawJunction(debugImg, nextGroupId, junction);
-					}
-				}
+				painter.DrawJunctions(lineClusters, boxesClusters);
 			}
 
 			// Let's explore boxes!
@@ -713,7 +681,7 @@ namespace OpenFieldReader
 
 			if (options.GenerateDebugImage)
 			{
-				DrawBoxes(allBoxes, debugImg, ref nextGroupId);
+				painter.DrawBoxes(allBoxes);
 			}
 
 			var finalResult = new OpenFieldReaderResult
@@ -724,23 +692,7 @@ namespace OpenFieldReader
 
 			if (options.GenerateDebugImage)
 			{
-				using (var image = new Image<Rgba32>(col, row))
-				{
-					AssignColor(debugImg, true);
-
-					for (int y = 0; y < row; y++)
-					{
-						for (int x = 0; x < col; x++)
-						{
-							int val = debugImg[y, x];
-							byte r = (byte)(~((val >> 16) & 0xFF));
-							byte g = (byte)(~((val >> 8) & 0xFF));
-							byte b = (byte)(~((val) & 0xFF));
-							image[x, y] = new Rgba32(r, g, b);
-						}
-					}
-					image.Save("debug.jpg");
-				}
+				painter.DrawImage();
 			}
 			
 			return finalResult;
