@@ -77,7 +77,16 @@ namespace OpenFieldReader
 			}
 		}
 
+        /// <summary>
+        /// Should this have parameters? We need to decide on pattern!
+        /// </summary>
+        /// <returns></returns>
         private CachedJunctions FindJunctions() {
+            // TODO: Hardcoded Filth
+            // If there is too much junction near each other, maybe it's just a black spot.
+            // We must ignore it to prevent wasting CPU and spend too much time.
+            int maxProximity = 10;
+
             // We are seaching for pattern!
             // We look for junctions.
             // This will help us make a decision.
@@ -90,10 +99,6 @@ namespace OpenFieldReader
             // Cache per line speed up the creation of various cache.
             Dictionary<int, List<Junction>> cacheListJunctionPerLine = new Dictionary<int, List<Junction>>();
             List<Junction> listJunction = new List<Junction>();
-
-            // If there is too much junction near each other, maybe it's just a black spot.
-            // We must ignore it to prevent wasting CPU and spend too much time.
-            int maxProximity = 10;
 
             for (int y = 1; y < this.Preprocessor.imgHeight - 1; y++)
             {
@@ -146,12 +151,186 @@ namespace OpenFieldReader
                 }
             }
 
+            if (listJunction.Count >= Options.MaxJunctions)
+            {
+                // Something wrong happen. Too much junction for now.
+                // If we continue, we would spend too much time processing the image.
+                // Let's suppose we don't know.
+                throw (new Exception("Too many Junctions"));
+                /* Old Version, i prefer throw.
+                return new OpenFieldReaderResult
+                {
+
+                    // Too many junctions. The image seem too complex. You may want to increase MaxJunctions
+                    ReturnCode = 10
+                };
+                */
+            }
+
             CachedJunctions junctions;
 
             junctions.cacheListJunctionPerLine = cacheListJunctionPerLine;
             junctions.listJunction = listJunction;
 
             return junctions;
+        }
+
+        private Structures.CachedJunctionCombinations CombineJunctions(List<Junction> listJunction, Dictionary<int, List<Junction>> cacheListJunctionPerLine) {
+            // Let's check the list of points.
+
+            // Prepare cache to speedup searching algo.
+            Dictionary<int, Junction[]> cacheNearJunction = new Dictionary<int, Junction[]>();
+            Dictionary<int, Junction[]> cachePossibleNextJunctionRight = new Dictionary<int, Junction[]>();
+            Dictionary<int, Junction[]> cachePossibleNextJunctionLeft = new Dictionary<int, Junction[]>();
+            foreach (var junction in listJunction)
+            {
+                var listJunctionNearJunction = new List<Junction>();
+
+                for (int deltaY = -this.Options.variationY; deltaY <= this.Options.variationY; deltaY++)
+                {
+                    if (cacheListJunctionPerLine.ContainsKey(junction.Y - deltaY))
+                        listJunctionNearJunction.AddRange(cacheListJunctionPerLine[junction.Y - deltaY]);
+                }
+
+                var list = listJunctionNearJunction
+                    .Where(m =>
+                        Math.Abs(m.X - junction.X) <= this.Options.maxX
+                        )
+                    .ToArray();
+
+                var id = junction.X | junction.Y << 16;
+
+                cacheNearJunction.Add(id, list);
+
+                var possibleNextJunction = list
+                    .Where(m =>
+                        Math.Abs(m.X - junction.X) >= this.Options.minX
+                        )
+                    .ToList();
+
+                cachePossibleNextJunctionLeft.Add(id, possibleNextJunction.Where(m => m.X < junction.X).ToArray());
+                cachePossibleNextJunctionRight.Add(id, possibleNextJunction.Where(m => m.X > junction.X).ToArray());
+            }
+
+            int numSol = 0;
+
+            List<Line> possibleSol = new List<Line>();
+
+
+            // We use a dictionary here because we need a fast way to remove entry.
+            // We reduce computation and we also merge solutions.
+            var elements = listJunction.OrderBy(m => m.Y).ToDictionary(m => m.X | m.Y << 16, m => m);
+
+            int skipSol = 0;
+            while (elements.Any())
+            {
+                var start = elements.First().Value;
+                elements.Remove(start.X | start.Y << 16);
+
+                Dictionary<int, List<int>> usedJunctionsForGapX = new Dictionary<int, List<int>>();
+                List<Line> listSolutions = new List<Line>();
+                var junctionsForGap = cacheNearJunction[start.X | start.Y << 16];
+
+                for (int iGap = 0; iGap < junctionsForGap.Length; iGap++)
+                {
+                    var gap = junctionsForGap[iGap];
+
+                    // Useless because it's already done with: cacheNearJunction.
+                    /*
+					var gapY = Math.Abs(gap.Y - start.Y);
+					if (gapY > 2)
+					{
+						continue;
+					}*/
+
+                    var gapX = Math.Abs(gap.X - start.X);
+                    if (gapX <= this.Options.minX || gapX > this.Options.maxX)
+                    {
+                        continue;
+                    }
+
+                    // We will reduce list of solution by checking if the solution is already found.
+                    //if (listSolutions.Any(m => Math.Abs(m.GapX - gapX) < 2 && m.Junctions.Contains(start)))
+                    if (usedJunctionsForGapX.ContainsKey(gap.X | gap.Y << 16) &&
+                        usedJunctionsForGapX[gap.X | gap.Y << 16].Any(m => Math.Abs(m - gapX) < 10))
+                    {
+                        skipSol++;
+                        continue;
+                    }
+
+                    List<Junction> curSolution = new List<Junction>();
+                    curSolution.Add(start);
+
+                    int numElementsRight = FindElementsOnDirection(cachePossibleNextJunctionRight, start, gap, gapX, curSolution);
+                    int numElementsLeft = FindElementsOnDirection(cachePossibleNextJunctionLeft, start, gap, -gapX, curSolution);
+
+                    int numElements = numElementsLeft + numElementsRight;
+
+                    if (numElements >= this.Options.MinNumElements)
+                    {
+                        if (numSol == this.Options.MaxSolutions)
+                        {
+                            // Something wrong happen. Too much solution for now.
+                            // If we continue, we would spend too much time processing the image.
+                            // Let's suppose we don't know.
+                            throw (new Exception("Too much solution somehow"));
+                            /*
+                            return new OpenFieldReaderResult
+                            {
+                                // Too much solution. You may want to increase MaxSolutions.
+                                ReturnCode = 30
+                            };
+                            */
+                        }
+
+                        numSol++;
+                        listSolutions.Add(new Line
+                        {
+                            GapX = gapX,
+                            Junctions = curSolution.ToArray()
+                        });
+                        foreach (var item in curSolution)
+                        {
+                            List<int> listGapX;
+                            if (!usedJunctionsForGapX.ContainsKey(item.X | item.Y << 16))
+                            {
+                                listGapX = new List<int>();
+                                usedJunctionsForGapX.Add(item.X | item.Y << 16, listGapX);
+                            }
+                            else
+                            {
+                                listGapX = usedJunctionsForGapX[item.X | item.Y << 16];
+                            }
+                            listGapX.Add(gapX);
+                        }
+                    }
+                }
+
+                Line bestSol = listSolutions.OrderByDescending(m => m.Junctions.Count()).FirstOrDefault();
+
+                if (bestSol != null)
+                {
+                    // Too slow. (faster if we skip removal)
+                    // But, we have more solutions.
+                    foreach (var item in bestSol.Junctions)
+                    {
+                        elements.Remove(item.X | item.Y << 16);
+                    }
+
+                    possibleSol.Add(bestSol);
+                }
+            }
+
+            if (this.Options.Verbose) {
+                Console.WriteLine("Skip solutions counter: " + skipSol);
+                Console.WriteLine(numSol + " : Solution found");
+                Console.WriteLine(possibleSol.Count + " : Best solution found");
+            }
+
+            CachedJunctionCombinations sols;
+            sols.possibleSol = possibleSol;
+            sols.cacheNearJunction = cacheNearJunction;
+            return sols;
         }
 			
 		private OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
@@ -169,173 +348,10 @@ namespace OpenFieldReader
 				Console.WriteLine("Junction.count: " + listJunction.Count);
 			}
 
-			if (listJunction.Count >= options.MaxJunctions)
-			{
-				// Something wrong happen. Too much junction for now.
-				// If we continue, we would spend too much time processing the image.
-				// Let's suppose we don't know.
-				return new OpenFieldReaderResult
-				{
-					// Too many junctions. The image seem too complex. You may want to increase MaxJunctions
-					ReturnCode = 10
-				};
-			}
+
+
+            var CachedJunctionCombinations = CombineJunctions(cachedJunctions.listJunction, cachedJunctions.cacheListJunctionPerLine);
 			
-			// Let's check the list of points.
-
-			// Search near same line.
-
-			// TODO: should be parameters. (Can speed up process if you know what you are looking for.)
-			int minX = 15; // Min estimated cell width (should not be less than 15.)
-			int maxX = 80; // Max estimated cell width (should not be greater than 85. Most of the time, it can be reduced to 50 or 60.)
-			int variationY = 3; // Variation of y to find next cell. (should be really small for faster result)
-			
-			// Prepare cache to speedup searching algo.
-			Dictionary<int, Junction[]> cacheNearJunction = new Dictionary<int, Junction[]>();
-			Dictionary<int, Junction[]> cachePossibleNextJunctionRight = new Dictionary<int, Junction[]>();
-			Dictionary<int, Junction[]> cachePossibleNextJunctionLeft = new Dictionary<int, Junction[]>();
-			foreach (var junction in listJunction)
-			{
-				var listJunctionNearJunction = new List<Junction>();
-
-				for (int deltaY = -variationY; deltaY <= variationY; deltaY++)
-				{
-					if (cacheListJunctionPerLine.ContainsKey(junction.Y - deltaY))
-						listJunctionNearJunction.AddRange(cacheListJunctionPerLine[junction.Y - deltaY]);
-				}
-
-				var list = listJunctionNearJunction
-					.Where(m =>
-						Math.Abs(m.X - junction.X) <= maxX
-						)
-					.ToArray();
-
-				var id = junction.X | junction.Y << 16;
-
-				cacheNearJunction.Add(id, list);
-
-				var possibleNextJunction = list
-					.Where(m =>
-						Math.Abs(m.X - junction.X) >= minX
-						)
-					.ToList();
-
-				cachePossibleNextJunctionLeft.Add(id, possibleNextJunction.Where(m => m.X < junction.X).ToArray());
-				cachePossibleNextJunctionRight.Add(id, possibleNextJunction.Where(m => m.X > junction.X).ToArray());
-			}
-			
-			int numSol = 0;
-
-			List<Line> possibleSol = new List<Line>();
-
-			
-			// We use a dictionary here because we need a fast way to remove entry.
-			// We reduce computation and we also merge solutions.
-			var elements = listJunction.OrderBy(m => m.Y).ToDictionary(m => m.X | m.Y << 16, m => m);
-			
-			int skipSol = 0;
-			while (elements.Any())
-			{
-				var start = elements.First().Value;
-				elements.Remove(start.X | start.Y << 16);
-
-				Dictionary<int, List<int>> usedJunctionsForGapX = new Dictionary<int, List<int>>();
-				List<Line> listSolutions = new List<Line>();
-				var junctionsForGap = cacheNearJunction[start.X | start.Y << 16];
-
-				for (int iGap = 0; iGap < junctionsForGap.Length; iGap++)
-				{
-					var gap = junctionsForGap[iGap];
-
-					// Useless because it's already done with: cacheNearJunction.
-					/*
-					var gapY = Math.Abs(gap.Y - start.Y);
-					if (gapY > 2)
-					{
-						continue;
-					}*/
-
-					var gapX = Math.Abs(gap.X - start.X);
-					if (gapX <= minX || gapX > maxX)
-					{
-						continue;
-					}
-					
-					// We will reduce list of solution by checking if the solution is already found.
-					//if (listSolutions.Any(m => Math.Abs(m.GapX - gapX) < 2 && m.Junctions.Contains(start)))
-					if (usedJunctionsForGapX.ContainsKey(gap.X | gap.Y << 16) &&
-						usedJunctionsForGapX[gap.X | gap.Y << 16].Any(m => Math.Abs(m - gapX) < 10))
-					{
-						skipSol++;
-						continue;
-					}
-					
-					List<Junction> curSolution = new List<Junction>();
-					curSolution.Add(start);
-
-					int numElementsRight = FindElementsOnDirection(cachePossibleNextJunctionRight, start, gap, gapX, curSolution);
-					int numElementsLeft = FindElementsOnDirection(cachePossibleNextJunctionLeft, start, gap, -gapX, curSolution);
-					
-					int numElements = numElementsLeft + numElementsRight;
-
-					if (numElements >= options.MinNumElements)
-					{
-						if (numSol == options.MaxSolutions)
-						{
-							// Something wrong happen. Too much solution for now.
-							// If we continue, we would spend too much time processing the image.
-							// Let's suppose we don't know.
-							return new OpenFieldReaderResult
-							{
-								// Too much solution. You may want to increase MaxSolutions.
-								ReturnCode = 30
-							};
-						}
-						
-						numSol++;
-						listSolutions.Add(new Line
-						{
-							GapX = gapX,
-							Junctions = curSolution.ToArray()
-						});
-						foreach (var item in curSolution)
-						{
-							List<int> listGapX;
-							if (!usedJunctionsForGapX.ContainsKey(item.X | item.Y << 16))
-							{
-								listGapX = new List<int>();
-								usedJunctionsForGapX.Add(item.X | item.Y << 16, listGapX);
-							}
-							else
-							{
-								listGapX = usedJunctionsForGapX[item.X | item.Y << 16];
-							}
-							listGapX.Add(gapX);
-						}
-					}
-				}
-
-				Line bestSol = listSolutions.OrderByDescending(m => m.Junctions.Count()).FirstOrDefault();
-
-				if (bestSol != null)
-				{
-					// Too slow. (faster if we skip removal)
-					// But, we have more solutions.
-					foreach (var item in bestSol.Junctions)
-					{
-						elements.Remove(item.X | item.Y << 16);
-					}
-
-					possibleSol.Add(bestSol);
-				}
-			}
-			
-
-			if (options.Verbose) {
-				Console.WriteLine("Skip solutions counter: " + skipSol);
-				Console.WriteLine(numSol + " : Solution found");
-				Console.WriteLine(possibleSol.Count + " : Best solution found");
-			}
 
 			// Let's merge near junctions. (vertical line)
 			// We assign a group id for each clusters.
@@ -343,7 +359,7 @@ namespace OpenFieldReader
 			Dictionary<int, int> junctionToGroupId = new Dictionary<int, int>();
 			
 			int nextGroupId = 1;
-			foreach (var curSolution in possibleSol)
+			foreach (var curSolution in CachedJunctionCombinations.possibleSol)
 			{
 				if (curSolution.Junctions.First().GroupId == 0)
 				{
@@ -360,7 +376,7 @@ namespace OpenFieldReader
 
 					foreach (var item in curSolution.Junctions)
 					{
-						var alreadyClassified = cacheNearJunction[item.X | item.Y << 16]
+						var alreadyClassified = CachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
 							.Where(m =>
 								// Doesn't work with struct.
 								//m.GroupId != 0 &&
@@ -401,7 +417,7 @@ namespace OpenFieldReader
 				}
 			}
 			
-			Dictionary<int, Junction[]> junctionsPerGroup = possibleSol
+			Dictionary<int, Junction[]> junctionsPerGroup = CachedJunctionCombinations.possibleSol
 				.SelectMany(m => m.Junctions)
 				.GroupBy(m => m.GroupId)
 				.ToDictionary(m => m.Key, m => m.ToArray());
@@ -482,7 +498,7 @@ namespace OpenFieldReader
 								var avgGapX = (firstGapX + secondGapX) / 2;
 
 								var minGapY = Math.Max(10, avgGapX - 5);
-								var maxGapY = Math.Min(maxX, avgGapX + 5);
+								var maxGapY = Math.Min(this.Options.maxX, avgGapX + 5);
 								
 								int diffY = topLine.Y - bottomLine.Y;
 								if (diffY >= maxGapY && diffY < minGapY)

@@ -23,7 +23,16 @@ namespace OpenFieldReader
             }
         }
 
-        public struct CachedJunctions
+        /// <summary>
+        ///  At this point we might wanna do this differently
+        /// </summary>
+        internal struct CachedJunctionCombinations
+        {
+            internal Dictionary<int, Junction[]> cacheNearJunction;
+            internal List<Line> possibleSol;
+        }
+
+        internal struct CachedJunctions
         {
             public Dictionary<int, List<Junction>> cacheListJunctionPerLine;
             public List<Junction> listJunction;
