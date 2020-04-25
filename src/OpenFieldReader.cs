@@ -26,7 +26,7 @@ namespace OpenFieldReader
 		{
 			try
 			{
-				var result = OpenFieldReader.FindBoxes(
+				var result = this.FindBoxes(
 					this.Preprocessor.imgData, 
 					this.Preprocessor.imgHeight, 
 					this.Preprocessor.imgWidth, 
@@ -76,80 +76,93 @@ namespace OpenFieldReader
 				Environment.Exit(3);
 			}
 		}
+
+        private CachedJunctions FindJunctions() {
+            // We are seaching for pattern!
+            // We look for junctions.
+            // This will help us make a decision.
+            // Junction types: T, L, +.
+            // Junctions allow us to find boxes contours.
+
+            int width = this.Options.JunctionWidth;
+            int height = this.Options.JunctionHeight;
+
+            // Cache per line speed up the creation of various cache.
+            Dictionary<int, List<Junction>> cacheListJunctionPerLine = new Dictionary<int, List<Junction>>();
+            List<Junction> listJunction = new List<Junction>();
+
+            // If there is too much junction near each other, maybe it's just a black spot.
+            // We must ignore it to prevent wasting CPU and spend too much time.
+            int maxProximity = 10;
+
+            for (int y = 1; y < this.Preprocessor.imgHeight - 1; y++)
+            {
+                List<Junction> listJunctionX = null;
+                int proximityCounter = 0;
+
+                for (int x = 1; x < this.Preprocessor.imgWidth - 1; x++)
+                {
+                    Junction? junction = GetJunction(this.Preprocessor.imgData, this.Preprocessor.imgHeight, this.Preprocessor.imgWidth, height, width, y, x);
+                    if (junction != null)
+                    {
+                        if (listJunctionX == null)
+                        {
+                            listJunctionX = new List<Junction>();
+                        }
+                        listJunctionX.Add(junction.Value);
+                        proximityCounter++;
+                    }
+                    else
+                    {
+                        if (listJunctionX != null)
+                        {
+                            if (proximityCounter < maxProximity)
+                            {
+                                if (!cacheListJunctionPerLine.ContainsKey(y))
+                                {
+                                    cacheListJunctionPerLine.Add(y, new List<Junction>());
+                                }
+                                cacheListJunctionPerLine[y].AddRange(listJunctionX);
+                                listJunction.AddRange(listJunctionX);
+                                listJunctionX.Clear();
+                            }
+                            else
+                            {
+                                listJunctionX.Clear();
+                            }
+                        }
+                        proximityCounter = 0;
+                    }
+                }
+
+                if (proximityCounter < maxProximity && listJunctionX != null)
+                {
+                    if (!cacheListJunctionPerLine.ContainsKey(y))
+                    {
+                        cacheListJunctionPerLine.Add(y, new List<Junction>());
+                    }
+                    cacheListJunctionPerLine[y].AddRange(listJunctionX);
+                    listJunction.AddRange(listJunctionX);
+                }
+            }
+
+            CachedJunctions junctions;
+
+            junctions.cacheListJunctionPerLine = cacheListJunctionPerLine;
+            junctions.listJunction = listJunction;
+
+            return junctions;
+        }
 			
-		public static OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
+		private OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
 		{
 			// Debug image.
 			Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
-			
-			
-			// We are seaching for pattern!
-			// We look for junctions.
-			// This will help us make a decision.
-			// Junction types: T, L, +.
-			// Junctions allow us to find boxes contours.
 
-			int width = options.JunctionWidth;
-			int height = options.JunctionHeight;
-
-			// Cache per line speed up the creation of various cache.
-			Dictionary<int, List<Junction>> cacheListJunctionPerLine = new Dictionary<int, List<Junction>>();
-			List<Junction> listJunction = new List<Junction>();
-			
-			// If there is too much junction near each other, maybe it's just a black spot.
-			// We must ignore it to prevent wasting CPU and spend too much time.
-			int maxProximity = 10;
-
-			for (int y = 1; y < row - 1; y++)
-			{
-				List<Junction> listJunctionX = null;
-				int proximityCounter = 0;
-
-				for (int x = 1; x < col - 1; x++)
-				{
-					Junction? junction = GetJunction(imgData, row, col, height, width, y, x);
-					if (junction != null)
-					{
-						if (listJunctionX == null)
-						{
-							listJunctionX = new List<Junction>();
-						}
-						listJunctionX.Add(junction.Value);
-						proximityCounter++;
-					}
-					else
-					{
-						if (listJunctionX != null)
-						{
-							if (proximityCounter < maxProximity)
-							{
-								if (!cacheListJunctionPerLine.ContainsKey(y))
-								{
-									cacheListJunctionPerLine.Add(y, new List<Junction>());
-								}
-								cacheListJunctionPerLine[y].AddRange(listJunctionX);
-								listJunction.AddRange(listJunctionX);
-								listJunctionX.Clear();
-							}
-							else
-							{
-								listJunctionX.Clear();
-							}
-						}
-						proximityCounter = 0;
-					}
-				}
-
-				if (proximityCounter < maxProximity && listJunctionX != null)
-				{
-					if (!cacheListJunctionPerLine.ContainsKey(y))
-					{
-						cacheListJunctionPerLine.Add(y, new List<Junction>());
-					}
-					cacheListJunctionPerLine[y].AddRange(listJunctionX);
-					listJunction.AddRange(listJunctionX);
-				}
-			}
+            // Cache per line speed up the creation of various cache.
+            CachedJunctions cachedJunctions = this.FindJunctions();
+            Dictionary<int, List<Junction>> cacheListJunctionPerLine = cachedJunctions.cacheListJunctionPerLine;
+			List<Junction> listJunction = cachedJunctions.listJunction;
 			
 			if (options.Verbose)
 			{

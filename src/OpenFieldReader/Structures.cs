@@ -23,6 +23,12 @@ namespace OpenFieldReader
             }
         }
 
+        public struct CachedJunctions
+        {
+            public Dictionary<int, List<Junction>> cacheListJunctionPerLine;
+            public List<Junction> listJunction;
+        }
+
         public struct Junction
         {
             public bool Top { get; set; }
