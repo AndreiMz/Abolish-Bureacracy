@@ -4,7 +4,7 @@ using System.Text;
 
 namespace OpenFieldReader
 {
-    internal class Structures
+    public class Structures
     {
         public struct Point
         {

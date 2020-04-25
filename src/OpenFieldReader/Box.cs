@@ -5,7 +5,7 @@ using static OpenFieldReader.Structures;
 
 namespace OpenFieldReader
 {
-    internal class Box
+    public class Box
     {
         public Point TopLeft { get; set; }
         public Point TopRight { get; set; }

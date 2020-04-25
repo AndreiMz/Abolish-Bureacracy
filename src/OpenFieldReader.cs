@@ -8,24 +8,76 @@ using System.Linq;
 using System.Threading;
 using SixLabors.ImageSharp.PixelFormats;
 using static OpenFieldReader.Structures;
+using static OpenFieldReader.Painter;
+using Utf8Json;
 
 namespace OpenFieldReader
 {
-	
+	public class OpenFieldReader
+	{
+		private OpenFieldReaderOptions Options;
+		private ImagePreprocessor Preprocessor;
+		public OpenFieldReader(OpenFieldReaderOptions options){
+			this.Options = options;
+			this.Preprocessor = new ImagePreprocessor(options.InputFile);
+		}
 
-	internal class OpenFieldReader
-	{	
+		public void Process()
+		{
+			try
+			{
+				var result = OpenFieldReader.FindBoxes(
+					this.Preprocessor.imgData, 
+					this.Preprocessor.imgHeight, 
+					this.Preprocessor.imgWidth, 
+					this.Options
+				);
 
-		
+				treatFailure(result);
 
-		
+				if (this.Options.OutputFile == "std")
+				{
+					// Show result on the console.
 
-	
-		
-		
+					Console.WriteLine("Boxes: " + result.Boxes.Count);
+					Console.WriteLine();
 
-		// Transput OpenFieldReaderOptions into class variables
-		// rename their references accordingly
+					int iBox = 1;
+					foreach (var box in result.Boxes)
+					{
+						Console.WriteLine("Box #" + iBox);
+
+						foreach (var element in box)
+						{
+							Console.WriteLine("  Element: " +
+								element.TopLeft + "; " +
+								element.TopRight + "; " +
+								element.BottomRight + "; " +
+								element.BottomLeft);
+						}
+
+						iBox++;
+					}
+					Console.WriteLine("Press any key to continue...");
+					Console.ReadLine();
+				}
+				else
+				{
+					// Write result to output file.
+					var outputPath = this.Options.OutputFile;
+					var json = JsonSerializer.ToJsonString(result);
+					File.WriteAllText(outputPath, json);
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine("File: " + this.Options.InputFile);
+				Console.WriteLine("Something wrong happen: " + ex.Message + Environment.NewLine + ex.StackTrace);
+				Environment.Exit(3);
+			}
+		}
+			
+
 		public static OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
 		{
 			// Debug image.
@@ -35,22 +87,7 @@ namespace OpenFieldReader
 				debugImg = new int[row, col];
 				for (int y = 0; y < row; y++)
 					for (int x = 0; x < col; x++)
-						debugImg[y, x] = imgData[y*x];
-
-				using (var image = new Image<Rgba32>(col, row))
-				{
-					AssignColor(debugImg, true);
-
-					for (int y = 0; y < row; y++)
-					{
-						for (int x = 0; x < col; x++)
-						{
-							int preProcessPx = imgData[y + x * row];
-							image[x, y] = new Rgba32(preProcessPx, preProcessPx, preProcessPx);
-						}
-					}
-					image.Save("debug_pre_process.jpg");
-				}
+						debugImg[y, x] = 0;
 			}
 			
 			// We are seaching for pattern!
@@ -89,7 +126,6 @@ namespace OpenFieldReader
 					}
 					else
 					{
-						// Also check for empty
 						if (listJunctionX != null)
 						{
 							if (proximityCounter < maxProximity)
@@ -322,7 +358,6 @@ namespace OpenFieldReader
 							.Where(m =>
 								// Doesn't work with struct.
 								//m.GroupId != 0 &&
-                                // TODO: Hardcoded piece of shit
 								Math.Abs(m.X - item.X) <= 5 &&
 								Math.Abs(m.Y - item.Y) <= 3
 								// Doesn't work with struct.
@@ -678,23 +713,7 @@ namespace OpenFieldReader
 
 			if (options.GenerateDebugImage)
 			{
-				int size = 5;
-				foreach (var item in allBoxes)
-				{
-					nextGroupId++;
-					foreach (var box in item)
-					{
-						DrawPoint(debugImg, nextGroupId, box.TopLeft.X, box.TopLeft.Y, size);
-						DrawPoint(debugImg, nextGroupId, box.TopRight.X, box.TopRight.Y, size);
-						DrawPoint(debugImg, nextGroupId, box.BottomLeft.X, box.BottomLeft.Y, size);
-						DrawPoint(debugImg, nextGroupId, box.BottomRight.X, box.BottomRight.Y, size);
-
-						// Let's show the center of the box.
-						var x = (box.TopLeft.X + box.TopRight.X + box.BottomLeft.X + box.BottomRight.X) / 4;
-						var y = (box.TopLeft.Y + box.TopRight.Y + box.BottomLeft.Y + box.BottomRight.Y) / 4;
-						DrawPoint(debugImg, nextGroupId, x, y, 10);
-					}
-				}
+				DrawBoxes(allBoxes, debugImg, ref nextGroupId);
 			}
 
 			var finalResult = new OpenFieldReaderResult
@@ -727,56 +746,7 @@ namespace OpenFieldReader
 			return finalResult;
 		}
 
-		private static void DrawPoint(int[,] outputImg, int colorCode, int x, int y, int size)
-		{
-			// Must be centered.
-			x -= size / 2;
-			y -= size / 2;
-
-			for (int i = 0; i < size; i++)
-				for (int j = 0; j < size; j++)
-				{
-					var curY = y + i;
-					var curX = x + j;
-
-					if (curX >= 0 && curY >= 0 && curX < outputImg.GetLength(1) && curY < outputImg.GetLength(0))
-						outputImg[y + i, x + j] = colorCode;
-				}
-		}
-
-		private static void DrawJunction(int[,] outputImg, int colorCode, Junction junction)
-		{
-			var top = junction.Top;
-			var bottom = junction.Bottom;
-			var right = junction.Right;
-			var left = junction.Left;
-			var numTop = junction.NumTop;
-			var numBottom = junction.NumBottom;
-			var numRight = junction.NumRight;
-			var numLeft = junction.NumLeft;
-			var x = junction.X;
-			var y = junction.Y;
-
-			if (top)
-				for (int i = 0; i < numTop; i++)
-					outputImg[y - i, x] = colorCode;
-			if (bottom)
-				for (int i = 0; i < numBottom; i++)
-					outputImg[y + i, x] = colorCode;
-			if (right)
-				for (int i = 0; i < numRight; i++)
-					outputImg[y, x + i] = colorCode;
-			if (left)
-				for (int i = 0; i < numLeft; i++)
-					outputImg[y, x - i] = colorCode;
-		}
-
-		private static int FindElementsOnDirection(
-			Dictionary<int, Junction[]> cacheNearJunction,
-			Junction start,
-			Junction gap,
-			int gapX,
-			List<Junction> curSolution)
+		private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap,int gapX, List<Junction> curSolution)
 		{
 			int numElements = 0;
 			var x = start.X;
@@ -885,50 +855,12 @@ namespace OpenFieldReader
 				imgData[y + (x + 1) * row]);
 		}
 
-		private static Random Random = new Random();
-		private static void AssignColor(int[,] labels, bool hasColor)
-		{
-			var row = labels.GetLength(0);
-			var col = labels.GetLength(1);
-
-			Dictionary<int, int> cacheColor = new Dictionary<int, int>();
-			int color = 0;
-
-			for (int i = 0; i < row; i++)
-			{
-				for (int j = 0; j < col; j++)
-				{
-					var val = labels[i, j];
-
-					if (val > 0)
-					{
-						if (hasColor)
-						{
-							if (!cacheColor.ContainsKey(val))
-							{
-								// Generate a random color
-								color =
-									(255 - Random.Next(70, 200)) << 16 |
-									(255 - Random.Next(100, 225)) << 8 |
-									(255 - Random.Next(100, 230));
-								cacheColor.Add(val, color);
-							}
-							else
-							{
-								color = cacheColor[val];
-							}
-							labels[i, j] = color;
-						}
-						else
-						{
-							labels[i, j] = 0xFFFFFF;
-						}
-					}
-					else
-					{
-						labels[i, j] = 0xFFFFFF;
-					}
+		private void treatFailure(OpenFieldReaderResult result){
+			if (result.ReturnCode != 0){
+				if (this.Options.Verbose) {
+					Console.WriteLine("Exit with code: " + result.ReturnCode);
 				}
+				Environment.Exit(result.ReturnCode);
 			}
 		}
 	}
