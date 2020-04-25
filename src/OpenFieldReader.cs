@@ -14,7 +14,7 @@ namespace OpenFieldReader
 	{
 		// Input.
 
-		[Option("input", HelpText = "Path to the image", Required = true)]
+		[Option("input", HelpText = "Path to the image", Required = false, Default = "../../../../Samples/form2.jpg")]
 		public string InputFile { get; set; }
 
 		[Option("width", Default = 25, HelpText = "Junction minimum width")]
@@ -399,6 +399,7 @@ namespace OpenFieldReader
 							.Where(m =>
 								// Doesn't work with struct.
 								//m.GroupId != 0 &&
+                                // TODO: Hardcoded piece of shit
 								Math.Abs(m.X - item.X) <= 5 &&
 								Math.Abs(m.Y - item.Y) <= 3
 								// Doesn't work with struct.
