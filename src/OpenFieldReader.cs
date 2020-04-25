@@ -7,117 +7,22 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using SixLabors.ImageSharp.PixelFormats;
+using static OpenFieldReader.Structures;
 
 namespace OpenFieldReader
 {
-	public class OpenFieldReaderOptions
-	{
-		// Input.
+	
 
-		[Option("input", HelpText = "Path to the image", Required = false, Default = "../../../../Samples/form2.jpg")]
-		public string InputFile { get; set; }
+	internal class OpenFieldReader
+	{	
 
-		[Option("width", Default = 25, HelpText = "Junction minimum width")]
-		public int JunctionWidth { get; set; }
-
-		[Option("height", Default = 15, HelpText = "Junction minimum height")]
-		public int JunctionHeight { get; set; }
-
-		[Option("min-num-elements", Default = 4, HelpText = "Minimum number of elements per group of boxes")]
-		public int MinNumElements { get; set; }
-
-		// These properties prevent wasting CPU on complex image.
-
-		[Option("max-junctions", Default = 20000, HelpText = "Maximum number of junctions allowed.")]
-		public int MaxJunctions { get; set; }
-
-		[Option("max-solutions", Default = 50000, HelpText = "Maximum number of solution allowed in the process.")]
-		public int MaxSolutions { get; set; }
-
-		// Debug.
-
-		[Option("generate-debug-image", Default = false, HelpText = "Generate a debug image?")]
-		public bool GenerateDebugImage { get; set; }
-
-		// Output.
-
-		[Option("output", Default = "std", HelpText = "Output type (std or path file)")]
-		public string OutputFile { get; set; }
-
-		[Option("verbose", Default = false, HelpText = "Verbose")]
-		public bool Verbose { get; set; }
-	}
-
-	public class OpenFieldReader
-	{
-		public class OpenFieldReaderResult
-		{
-			public int ReturnCode { get; set; }
-			public List<List<Box>> Boxes { get; set; }
-		}
 		
-		public struct Point
-		{
-			public int X { get; set; }
-			public int Y { get; set; }
 
-			public Point(double x, double y)
-			{
-				X = (int)x;
-				Y = (int)y;
-			}
-
-			public override string ToString()
-			{
-				return X + ", " + Y;
-			}
-		}
-
-		private struct Junction
-		{
-			public bool Top { get; set; }
-			public bool Bottom { get; set; }
-			public bool Left { get; set; }
-			public bool Right { get; set; }
-			public byte NumTop { get; set; }
-			public byte NumBottom { get; set; }
-			public byte NumLeft { get; set; }
-			public byte NumRight { get; set; }
-			public int X { get; set; }
-			public int Y { get; set; }
-			public int GroupId { get; set; }
-			public float GapX { get; set; }
-		}
-
-		private class Line
-		{
-			public Junction[] Junctions { get; set; }
-			public float GapX { get; set; }
-		}
-
-		private class LineCluster
-		{
-			public int X { get; set; }
-			public int Y { get; set; }
-			public bool Top { get; set; }
-			public bool Bottom { get; set; }
-			public Junction[] Junctions { get; set; }
-		}
-
-		private class BoxesCluster
-		{
-			public LineCluster TopLine { get; set; }
-			public LineCluster BottomLine { get; set; }
-			public float GapY { get; set; }
-		}
 		
-		public class Box
-		{
-			public Point TopLeft { get; set; }
-			public Point TopRight { get; set; }
-			public Point BottomLeft { get; set; }
-			public Point BottomRight { get; set; }
-		}
+
+	
+		
+		
 
 		// Transput OpenFieldReaderOptions into class variables
 		// rename their references accordingly
