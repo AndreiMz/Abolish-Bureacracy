@@ -149,6 +149,7 @@ namespace OpenFieldReader
                     cacheListJunctionPerLine[y].AddRange(listJunctionX);
                     listJunction.AddRange(listJunctionX);
                 }
+
             }
 
             if (listJunction.Count >= Options.MaxJunctions)
@@ -171,6 +172,11 @@ namespace OpenFieldReader
 
             junctions.cacheListJunctionPerLine = cacheListJunctionPerLine;
             junctions.listJunction = listJunction;
+
+            if (this.Options.Verbose)
+            {
+                Console.WriteLine("Junction.count: " + listJunction.Count);
+            }
 
             return junctions;
         }
@@ -226,7 +232,6 @@ namespace OpenFieldReader
             int numSol = 0;
 
             List<Line> possibleSol = new List<Line>();
-
 
             // We use a dictionary here because we need a fast way to remove entry.
             // We reduce computation and we also merge solutions.
@@ -342,401 +347,443 @@ namespace OpenFieldReader
         }
 			
 		private OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
-		{
-			// Debug image.
-			Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
+        {
+            // Debug image.
+            Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
 
             // Cache per line speed up the creation of various cache.
             CachedJunctions cachedJunctions = this.FindJunctions();
-            Dictionary<int, List<Junction>> cacheListJunctionPerLine = cachedJunctions.cacheListJunctionPerLine;
-			List<Junction> listJunction = cachedJunctions.listJunction;
-			
-			if (options.Verbose)
-			{
-				Console.WriteLine("Junction.count: " + listJunction.Count);
-			}
-
 
 
             var cachedJunctionCombinations = GetCombinedJunctions(cachedJunctions.listJunction, cachedJunctions.cacheListJunctionPerLine);
 
             var possibleSol = GetLines(cachedJunctions.listJunction, cachedJunctionCombinations);
 
-			// Let's merge near junctions. (vertical line)
-			// We assign a group id for each clusters.
+            List<LineCluster> lineClusters = ClusterLines(cachedJunctionCombinations, possibleSol);
 
-			Dictionary<int, int> junctionToGroupId = new Dictionary<int, int>();
-			
-			int nextGroupId = 1;
-			foreach (var curSolution in possibleSol)
-			{
-				if (curSolution.Junctions.First().GroupId == 0)
-				{
-					for (int i = 0; i < curSolution.Junctions.Length; i++)
-					{
-						ref var j = ref curSolution.Junctions[i];
-						j.GapX = curSolution.GapX;
-					}
+            List<BoxesCluster> boxesClusters = PrototypeBoxClusters(lineClusters);
 
-					// Not assigned yet.
+            // I kinda wanna move these inside the functions
+            // but then the painter has to be at class level. Ish.
+            // Maybe that is better
+            if (options.GenerateDebugImage)
+            {
+                painter.DrawJunctions(lineClusters, boxesClusters);
+            }
 
-					// Find near junction.
-					int groupId = 0;
+            // We can now merge near junctions.
+            // We want to find the centroid in order to determine the boxes dimensions and position.
+            List<List<Box>> allBoxes = GetBoxes(boxesClusters);
 
-					foreach (var item in curSolution.Junctions)
-					{
-						var alreadyClassified = cachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
-							.Where(m =>
-								// Doesn't work with struct.
-								//m.GroupId != 0 &&
-								Math.Abs(m.X - item.X) <= 5 &&
-								Math.Abs(m.Y - item.Y) <= 3
-								// Doesn't work with struct.
-								//Math.Abs(m.GapX - item.GapX) <= 2
-							).Where(m => junctionToGroupId.ContainsKey(m.X | m.Y << 16));
-						if (alreadyClassified.Any())
-						{
-							Junction junction = alreadyClassified.First();
-							groupId = junctionToGroupId[junction.X | junction.Y << 16];
-							//groupId = alreadyClassified.First().GroupId;
-							break;
-						}
-					}
+            RemoveInvalidBoxes(allBoxes);
 
-					if (groupId == 0)
-					{
-						// Not found.
+            if (options.GenerateDebugImage)
+            {
+                painter.DrawBoxes(allBoxes);
+            }
 
-						// Create a new group.
-						nextGroupId++;
+            var finalResult = new OpenFieldReaderResult
+            {
+                Boxes = allBoxes,
+                ReturnCode = 0
+            };
 
-						groupId = nextGroupId;
-					}
-					
-					for (int i = 0; i < curSolution.Junctions.Length; i++)
-					{
-						ref var j = ref curSolution.Junctions[i];
-						j.GroupId = groupId;
-						int id = j.X | j.Y << 16;
-						if (!junctionToGroupId.ContainsKey(id))
-						{
-							junctionToGroupId.Add(id, groupId);
-						}
-					}
-				}
-			}
-			
-			Dictionary<int, Junction[]> junctionsPerGroup = possibleSol
-				.SelectMany(m => m.Junctions)
-				.GroupBy(m => m.GroupId)
-				.ToDictionary(m => m.Key, m => m.ToArray());
+            if (options.GenerateDebugImage)
+            {
+                painter.DrawImage();
+            }
 
-			// Let's explore the clusters directions and try to interconnect clusters on the horizontal side.
+            return finalResult;
+        }
 
-			// Minimum percent of elements to determine the direction.
-			int minElementPercent = 60;
+        private List<BoxesCluster> PrototypeBoxClusters(List<LineCluster> lineClusters)
+        {
+            List<BoxesCluster> boxesClusters = new List<BoxesCluster>();
+            Dictionary<LineCluster, LineCluster> lineClustersTop = new Dictionary<LineCluster, LineCluster>();
+            Dictionary<LineCluster, LineCluster> lineClustersBottom = new Dictionary<LineCluster, LineCluster>();
 
-			List<LineCluster> lineClusters = new List<LineCluster>();
+            Dictionary<LineCluster, float> cacheGapX = new Dictionary<LineCluster, float>();
 
-			foreach (var item in junctionsPerGroup)
-			{
-				int groupId = item.Key;
-				Junction[] junctions = item.Value;
+            // Merge top and bottom lines.
+            foreach (var itemA in lineClusters)
+            {
+                foreach (var itemB in lineClusters)
+                {
+                    if (itemA != itemB)
+                    {
+                        if (itemA.Bottom && itemB.Top || itemA.Top && itemB.Bottom)
+                        {
+                            // Compatible.
+                            var topLine = itemA.Top ? itemA : itemB;
+                            var bottomLine = itemA.Top ? itemB : itemA;
 
-				int minElementDir = minElementPercent * junctions.Length / 100;
+                            if (lineClustersTop.ContainsKey(topLine))
+                                continue;
+                            if (lineClustersBottom.ContainsKey(bottomLine))
+                                continue;
 
-				// Determine the general direction.
-				var top = junctions.Count(m => m.Top) > minElementDir;
-				var bottom = junctions.Count(m => m.Bottom) > minElementDir;
+                            if (!cacheGapX.ContainsKey(itemA))
+                                cacheGapX.Add(itemA, itemA.Junctions.Average(m => m.GapX));
+                            if (!cacheGapX.ContainsKey(itemB))
+                                cacheGapX.Add(itemB, itemB.Junctions.Average(m => m.GapX));
 
-				for (int i = 0; i < junctions.Length; i++)
-				{
-					ref var j = ref junctions[i];
-					j.Top = top;
-					j.Bottom = bottom;
-				}
-				
-				var x = (int)junctions.Average(m => m.X);
-				var y = (int)junctions.Average(m => m.Y);
+                            var firstGapX = cacheGapX[itemA];
+                            var secondGapX = cacheGapX[itemB];
 
-				lineClusters.Add(new LineCluster
-				{
-					Bottom = bottom,
-					Top = top,
-					Junctions = junctions,
-					X = x,
-					Y = y
-				});
-			}
+                            // GapX should be similar. Otherwise, just ignore it.
+                            if (Math.Abs(firstGapX - secondGapX) <= 2 && Math.Abs(itemA.X - itemB.X) < 200)
+                            {
+                                var avgGapX = (firstGapX + secondGapX) / 2;
 
-			List<BoxesCluster> boxesClusters = new List<BoxesCluster>();
-			Dictionary<LineCluster, LineCluster> lineClustersTop = new Dictionary<LineCluster, LineCluster>();
-			Dictionary<LineCluster, LineCluster> lineClustersBottom = new Dictionary<LineCluster, LineCluster>();
+                                var minGapY = Math.Max(10, avgGapX - 5);
+                                var maxGapY = Math.Min(this.Options.maxX, avgGapX + 5);
 
-			Dictionary<LineCluster, float> cacheGapX = new Dictionary<LineCluster, float>();
-			
-			// Merge top and bottom lines.
-			foreach (var itemA in lineClusters)
-			{
-				foreach (var itemB in lineClusters)
-				{
-					if (itemA != itemB)
-					{
-						if (itemA.Bottom && itemB.Top || itemA.Top && itemB.Bottom)
-						{
-							// Compatible.
-							var topLine = itemA.Top ? itemA : itemB;
-							var bottomLine = itemA.Top ? itemB : itemA;
+                                int diffY = topLine.Y - bottomLine.Y;
+                                if (diffY >= maxGapY && diffY < minGapY)
+                                {
+                                    continue;
+                                }
 
-							if (lineClustersTop.ContainsKey(topLine))
-								continue;
-							if (lineClustersBottom.ContainsKey(bottomLine))
-								continue;
-							
-							if (!cacheGapX.ContainsKey(itemA))
-								cacheGapX.Add(itemA, itemA.Junctions.Average(m => m.GapX));
-							if (!cacheGapX.ContainsKey(itemB))
-								cacheGapX.Add(itemB, itemB.Junctions.Average(m => m.GapX));
+                                // For the majority of element on top line, we should be able to interconnect
+                                // with the other line.
 
-							var firstGapX = cacheGapX[itemA];
-							var secondGapX = cacheGapX[itemB];
+                                // Must have some common element next to each other.
+                                int commonElementCounter = 0;
 
-							// GapX should be similar. Otherwise, just ignore it.
-							if (Math.Abs(firstGapX - secondGapX) <= 2 && Math.Abs(itemA.X - itemB.X) < 200)
-							{
-								var avgGapX = (firstGapX + secondGapX) / 2;
+                                int groupGapX = Math.Max(5, (int)avgGapX - 5);
 
-								var minGapY = Math.Max(10, avgGapX - 5);
-								var maxGapY = Math.Min(this.Options.maxX, avgGapX + 5);
-								
-								int diffY = topLine.Y - bottomLine.Y;
-								if (diffY >= maxGapY && diffY < minGapY)
-								{
-									continue;
-								}
-								
-								// For the majority of element on top line, we should be able to interconnect
-								// with the other line.
+                                int numberOfElements = 5;
 
-								// Must have some common element next to each other.
-								int commonElementCounter = 0;
+                                // We reduce required computation.
+                                // We will consider only some elements on the junctions.
+                                List<Junction> topLineJunctions = topLine.Junctions.GroupBy(m => (m.X / groupGapX))
+                                    .SelectMany(m => m.Take(numberOfElements))
+                                    .ToList();
+                                List<Junction> bottomLineJunctions = bottomLine.Junctions.GroupBy(m => (m.X / groupGapX))
+                                    .SelectMany(m => m.Take(numberOfElements))
+                                    .ToList();
 
-								int groupGapX = Math.Max(5, (int)avgGapX - 5);
+                                int minPercent = 70;
+                                int minCount = Math.Min(topLineJunctions.Count, bottomLineJunctions.Count);
+                                int minimumCommonElements = minCount * minPercent / 100;
 
-								int numberOfElements = 5;
+                                List<float> avgGapY = new List<float>();
+                                foreach (var topJunction in topLineJunctions)
+                                {
+                                    var commonElement = bottomLineJunctions.Where(m =>
+                                        Math.Abs(topJunction.X - m.X) <= 5
+                                        && topJunction.Y - m.Y >= minGapY
+                                        && topJunction.Y - m.Y <= maxGapY
+                                    );
+                                    if (commonElement.Any())
+                                    {
+                                        avgGapY.Add((float)commonElement.Average(m => topJunction.Y - m.Y));
+                                        commonElementCounter++;
 
-								// We reduce required computation.
-								// We will consider only some elements on the junctions.
-								List<Junction> topLineJunctions = topLine.Junctions.GroupBy(m => (m.X / groupGapX))
-									.SelectMany(m => m.Take(numberOfElements))
-									.ToList();
-								List<Junction> bottomLineJunctions = bottomLine.Junctions.GroupBy(m => (m.X / groupGapX))
-									.SelectMany(m => m.Take(numberOfElements))
-									.ToList();
+                                        if (commonElementCounter >= minimumCommonElements)
+                                        {
+                                            // We can stop now. It's a boxes!
+                                            break;
+                                        }
+                                    }
+                                }
 
-								int minPercent = 70;
-								int minCount = Math.Min(topLineJunctions.Count, bottomLineJunctions.Count);
-								int minimumCommonElements = minCount * minPercent / 100;
-								
-								List<float> avgGapY = new List<float>();
-								foreach (var topJunction in topLineJunctions)
-								{
-									var commonElement = bottomLineJunctions.Where(m =>
-										Math.Abs(topJunction.X - m.X) <= 5
-										&& topJunction.Y - m.Y >= minGapY
-										&& topJunction.Y - m.Y <= maxGapY
-									);
-									if (commonElement.Any())
-									{
-										avgGapY.Add((float)commonElement.Average(m => topJunction.Y - m.Y));
-										commonElementCounter++;
+                                if (commonElementCounter >= 1 && commonElementCounter >= minimumCommonElements)
+                                {
+                                    boxesClusters.Add(new BoxesCluster
+                                    {
+                                        TopLine = topLine,
+                                        BottomLine = bottomLine,
+                                        GapY = avgGapY.Average()
+                                    });
 
-										if (commonElementCounter >= minimumCommonElements)
-										{
-											// We can stop now. It's a boxes!
-											break;
-										}
-									}
-								}
+                                    lineClustersTop.Add(topLine, topLine);
+                                    lineClustersBottom.Add(bottomLine, bottomLine);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
-								if (commonElementCounter >= 1 && commonElementCounter >= minimumCommonElements)
-								{
-									boxesClusters.Add(new BoxesCluster
-									{
-										TopLine = topLine,
-										BottomLine = bottomLine,
-										GapY = avgGapY.Average()
-									});
+            return boxesClusters;
+        }
 
-									lineClustersTop.Add(topLine, topLine);
-									lineClustersBottom.Add(bottomLine, bottomLine);
-								}
-							}
-						}
-					}
-				}
-			}
 
-			// We can now merge near junctions.
-			// We want to find the centroid in order to determine the boxes dimensions and position.
-			List<List<Box>> allBoxes = new List<List<Box>>();
-			foreach (var boxesCluster in boxesClusters)
-			{
-				// We will explore points horizontally.
-				var allPoints = boxesCluster.TopLine.Junctions.Union(boxesCluster.BottomLine.Junctions)
-					.Select(m => m.X)
-					.OrderBy(m => m)
-					.ToList();
+        private List<List<Box>> GetBoxes(List<BoxesCluster> boxesClusters)
+        {
+            // We can now merge near junctions.
+            // We want to find the centroid in order to determine the boxes dimensions and position.
+            List<List<Box>> allBoxes = new List<List<Box>>();
+            foreach (var boxesCluster in boxesClusters)
+            {
+                // We will explore points horizontally.
+                var allPoints = boxesCluster.TopLine.Junctions.Union(boxesCluster.BottomLine.Junctions)
+                    .Select(m => m.X)
+                    .OrderBy(m => m)
+                    .ToList();
 
-				var avgGapX = boxesCluster.TopLine.Junctions.Average(m => m.GapX);
-				var maxDist = Math.Max(10, avgGapX / 2);
+                var avgGapX = boxesCluster.TopLine.Junctions.Average(m => m.GapX);
+                var maxDist = Math.Max(10, avgGapX / 2);
 
-				// Sometime, there is missing points. We will interconnect the boxes.
-				List<Box> boxes = new List<Box>();
-				Box curBoxes = null;
+                // Sometime, there is missing points. We will interconnect the boxes.
+                List<Box> boxes = new List<Box>();
+                Box curBoxes = null;
 
-				while (allPoints.Any())
-				{
-					var listX = new List<int>();
+                while (allPoints.Any())
+                {
+                    var listX = new List<int>();
 
-					var x = allPoints[0];
-					allPoints.RemoveAt(0);
-					listX.Add(x);
+                    var x = allPoints[0];
+                    allPoints.RemoveAt(0);
+                    listX.Add(x);
 
-					// Remove near points.
-					for (int i = 0; i < allPoints.Count; i++)
-					{
-						var curX = allPoints[i];
-						if (Math.Abs(curX - x) < maxDist)
-						{
-							allPoints.RemoveAt(i);
-							i--;
-							listX.Add(curX);
-						}
-					}
+                    // Remove near points.
+                    for (int i = 0; i < allPoints.Count; i++)
+                    {
+                        var curX = allPoints[i];
+                        if (Math.Abs(curX - x) < maxDist)
+                        {
+                            allPoints.RemoveAt(i);
+                            i--;
+                            listX.Add(curX);
+                        }
+                    }
 
-					var centroidX = listX.Average();
+                    var centroidX = listX.Average();
 
-					var topJunctions = boxesCluster.TopLine.Junctions.Where(m => Math.Abs(m.X - centroidX) < maxDist);
-					var bottomJunctions = boxesCluster.BottomLine.Junctions.Where(m => Math.Abs(m.X - centroidX) < maxDist);
+                    var topJunctions = boxesCluster.TopLine.Junctions.Where(m => Math.Abs(m.X - centroidX) < maxDist);
+                    var bottomJunctions = boxesCluster.BottomLine.Junctions.Where(m => Math.Abs(m.X - centroidX) < maxDist);
 
-					Point? curPointTop = null;
-					Point? curPointBottom = null;
+                    Point? curPointTop = null;
+                    Point? curPointBottom = null;
 
-					if (bottomJunctions.Any())
-					{
-						var curX = bottomJunctions.Average(m => m.X);
-						var curY = bottomJunctions.Average(m => m.Y);
-						curPointTop = new Point(curX, curY);
-					}
+                    if (bottomJunctions.Any())
+                    {
+                        var curX = bottomJunctions.Average(m => m.X);
+                        var curY = bottomJunctions.Average(m => m.Y);
+                        curPointTop = new Point(curX, curY);
+                    }
 
-					if (topJunctions.Any())
-					{
-						var curX = topJunctions.Average(m => m.X);
-						var curY = topJunctions.Average(m => m.Y);
-						curPointBottom = new Point(curX, curY);
-					}
+                    if (topJunctions.Any())
+                    {
+                        var curX = topJunctions.Average(m => m.X);
+                        var curY = topJunctions.Average(m => m.Y);
+                        curPointBottom = new Point(curX, curY);
+                    }
 
-					if (topJunctions.Any() != bottomJunctions.Any())
-					{
-						// We should try our best to correct the error.
-						// If we use boxesCluster.GapY we can estimate the point.
+                    if (topJunctions.Any() != bottomJunctions.Any())
+                    {
+                        // We should try our best to correct the error.
+                        // If we use boxesCluster.GapY we can estimate the point.
 
-						if (!curPointTop.HasValue)
-							curPointTop = new Point(curPointBottom.Value.X, curPointBottom.Value.Y - boxesCluster.GapY);
+                        if (!curPointTop.HasValue)
+                            curPointTop = new Point(curPointBottom.Value.X, curPointBottom.Value.Y - boxesCluster.GapY);
 
-						if (!curPointBottom.HasValue)
-							curPointBottom = new Point(curPointTop.Value.X, curPointTop.Value.Y + boxesCluster.GapY);
-					}
+                        if (!curPointBottom.HasValue)
+                            curPointBottom = new Point(curPointTop.Value.X, curPointTop.Value.Y + boxesCluster.GapY);
+                    }
 
-					if (!curPointTop.HasValue && !curPointBottom.HasValue)
-					{
-						return new OpenFieldReaderResult
-						{
-							// This should not happen. Please open an issue on GitHub with your image.
-							ReturnCode = 20
-						};
-					}
+                    if (!curPointTop.HasValue && !curPointBottom.HasValue)
+                    {
+                        throw (new Exception("This should not happen. BIG YIKES"));
+                        /*
+                        return new OpenFieldReaderResult
+                        {
+                            // This should not happen. Please open an issue on GitHub with your image.
+                            ReturnCode = 20
+                        };
+                        */
+                    }
 
-					if (curBoxes == null)
-					{
-						curBoxes = new Box();
-						curBoxes.TopLeft = curPointTop.Value;
-						curBoxes.BottomLeft = curPointBottom.Value;
-					}
-					else
-					{
-						curBoxes.TopRight = curPointTop.Value;
-						curBoxes.BottomRight = curPointBottom.Value;
-						boxes.Add(curBoxes);
+                    if (curBoxes == null)
+                    {
+                        curBoxes = new Box();
+                        curBoxes.TopLeft = curPointTop.Value;
+                        curBoxes.BottomLeft = curPointBottom.Value;
+                    }
+                    else
+                    {
+                        curBoxes.TopRight = curPointTop.Value;
+                        curBoxes.BottomRight = curPointBottom.Value;
+                        boxes.Add(curBoxes);
 
-						// Prepare the next box. (may not be added)
-						curBoxes = new Box();
-						curBoxes.TopLeft = curPointTop.Value;
-						curBoxes.BottomLeft = curPointBottom.Value;
-					}
-				}
+                        // Prepare the next box. (may not be added)
+                        curBoxes = new Box();
+                        curBoxes.TopLeft = curPointTop.Value;
+                        curBoxes.BottomLeft = curPointBottom.Value;
+                    }
+                }
 
-				if (boxes.Any())
-				{
-					allBoxes.Add(boxes);
-				}
-			}
+                if (boxes.Any())
+                {
+                    allBoxes.Add(boxes);
+                }
+            }
 
-			if (options.GenerateDebugImage)
-			{
-				painter.DrawJunctions(lineClusters, boxesClusters);
-			}
+            return allBoxes;
+        }
 
-			// Let's explore boxes!
-			// We will check if those boxes seem valid.
-			for (int i = 0; i < allBoxes.Count; i++)
-			{
-				var isValid = true;
-				var curBoxes = allBoxes[i];
+        private List<LineCluster> ClusterLines(CachedJunctionCombinations cachedJunctionCombinations, List<Line> possibleSol)
+        {
+            Dictionary<int, Junction[]> junctionsPerGroup = VerticalGroupJunctions(cachedJunctionCombinations, possibleSol);
 
-				var minWidth = curBoxes.Min(m =>
-					((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
-				var minHeight = curBoxes.Min(m =>
-					((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
-				var maxWidth = curBoxes.Max(m =>
-					((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
-				var maxHeight = curBoxes.Max(m =>
-					((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
+            List<LineCluster> lineClusters = HorizontalGroupLines(junctionsPerGroup);
+            return lineClusters;
+        }
 
-				// If the width and height are too different, we should not consider the boxes.
-				if (maxWidth - minWidth > 7 || maxHeight - minHeight > 5)
-				{
-					isValid = false;
-				}
+        private Dictionary<int, Junction[]> VerticalGroupJunctions(CachedJunctionCombinations cachedJunctionCombinations, List<Line> possibleSol)
+        {
+            // Let's merge near junctions. (vertical line)
+            // We assign a group id for each clusters.
 
-				if (!isValid)
-				{
-					allBoxes.RemoveAt(i);
-					i--;
-				}
-			}
+            Dictionary<int, int> junctionToGroupId = new Dictionary<int, int>();
 
-			if (options.GenerateDebugImage)
-			{
-				painter.DrawBoxes(allBoxes);
-			}
+            int nextGroupId = 1;
+            foreach (var curSolution in possibleSol)
+            {
+                if (curSolution.Junctions.First().GroupId == 0)
+                {
+                    for (int i = 0; i < curSolution.Junctions.Length; i++)
+                    {
+                        ref var j = ref curSolution.Junctions[i];
+                        j.GapX = curSolution.GapX;
+                    }
 
-			var finalResult = new OpenFieldReaderResult
-			{
-				Boxes = allBoxes,
-				ReturnCode = 0
-			};
+                    // Not assigned yet.
 
-			if (options.GenerateDebugImage)
-			{
-				painter.DrawImage();
-			}
-			
-			return finalResult;
-		}
+                    // Find near junction.
+                    int groupId = 0;
 
-		private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap,int gapX, List<Junction> curSolution)
+                    foreach (var item in curSolution.Junctions)
+                    {
+                        var alreadyClassified = cachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
+                            .Where(m =>
+                                // Doesn't work with struct.
+                                //m.GroupId != 0 &&
+                                Math.Abs(m.X - item.X) <= 5 &&
+                                Math.Abs(m.Y - item.Y) <= 3
+                            // Doesn't work with struct.
+                            //Math.Abs(m.GapX - item.GapX) <= 2
+                            ).Where(m => junctionToGroupId.ContainsKey(m.X | m.Y << 16));
+                        if (alreadyClassified.Any())
+                        {
+                            Junction junction = alreadyClassified.First();
+                            groupId = junctionToGroupId[junction.X | junction.Y << 16];
+                            //groupId = alreadyClassified.First().GroupId;
+                            break;
+                        }
+                    }
+
+                    if (groupId == 0)
+                    {
+                        // Not found.
+
+                        // Create a new group.
+                        nextGroupId++;
+
+                        groupId = nextGroupId;
+                    }
+
+                    for (int i = 0; i < curSolution.Junctions.Length; i++)
+                    {
+                        ref var j = ref curSolution.Junctions[i];
+                        j.GroupId = groupId;
+                        int id = j.X | j.Y << 16;
+                        if (!junctionToGroupId.ContainsKey(id))
+                        {
+                            junctionToGroupId.Add(id, groupId);
+                        }
+                    }
+                }
+            }
+
+            Dictionary<int, Junction[]> junctionsPerGroup = possibleSol
+                .SelectMany(m => m.Junctions)
+                .GroupBy(m => m.GroupId)
+                .ToDictionary(m => m.Key, m => m.ToArray());
+            return junctionsPerGroup;
+        }
+
+        private static List<LineCluster> HorizontalGroupLines(Dictionary<int, Junction[]> junctionsPerGroup)
+        {
+            // Let's explore the clusters directions and try to interconnect clusters on the horizontal side.
+
+            // Minimum percent of elements to determine the direction.
+            // FILTHY HARDCODING
+            int minElementPercent = 60;
+
+            List<LineCluster> lineClusters = new List<LineCluster>();
+
+            foreach (var item in junctionsPerGroup)
+            {
+                int groupId = item.Key;
+                Junction[] junctions = item.Value;
+
+                int minElementDir = minElementPercent * junctions.Length / 100;
+
+                // Determine the general direction.
+                var top = junctions.Count(m => m.Top) > minElementDir;
+                var bottom = junctions.Count(m => m.Bottom) > minElementDir;
+
+                for (int i = 0; i < junctions.Length; i++)
+                {
+                    ref var j = ref junctions[i];
+                    j.Top = top;
+                    j.Bottom = bottom;
+                }
+
+                var x = (int)junctions.Average(m => m.X);
+                var y = (int)junctions.Average(m => m.Y);
+
+                lineClusters.Add(new LineCluster
+                {
+                    Bottom = bottom,
+                    Top = top,
+                    Junctions = junctions,
+                    X = x,
+                    Y = y
+                });
+            }
+
+            return lineClusters;
+        }
+
+
+        private void RemoveInvalidBoxes(List<List<Box>> allBoxes)
+        {
+            // Let's explore boxes!
+            // We will check if those boxes seem valid.
+            for (int i = 0; i < allBoxes.Count; i++)
+            {
+                var isValid = true;
+                var curBoxes = allBoxes[i];
+
+                var minWidth = curBoxes.Min(m =>
+                    ((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
+                var minHeight = curBoxes.Min(m =>
+                    ((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
+                var maxWidth = curBoxes.Max(m =>
+                    ((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
+                var maxHeight = curBoxes.Max(m =>
+                    ((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
+
+                // HARDCODED FILTH
+                // If the width and height are too different, we should not consider the boxes.
+                if (maxWidth - minWidth > 7 || maxHeight - minHeight > 5)
+                {
+                    isValid = false;
+                }
+
+                if (!isValid)
+                {
+                    allBoxes.RemoveAt(i);
+                    i--;
+                }
+            }
+        }
+
+        private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap,int gapX, List<Junction> curSolution)
 		{
 			int numElements = 0;
 			var x = start.X;
