@@ -175,7 +175,7 @@ namespace OpenFieldReader
             return junctions;
         }
 
-        private Structures.CachedJunctionCombinations CombineJunctions(List<Junction> listJunction, Dictionary<int, List<Junction>> cacheListJunctionPerLine) {
+        private CachedJunctionCombinations GetCombinedJunctions(List<Junction> listJunction, Dictionary<int, List<Junction>> cacheListJunctionPerLine) {
             // Let's check the list of points.
 
             // Prepare cache to speedup searching algo.
@@ -212,6 +212,17 @@ namespace OpenFieldReader
                 cachePossibleNextJunctionRight.Add(id, possibleNextJunction.Where(m => m.X > junction.X).ToArray());
             }
 
+            CachedJunctionCombinations combinations;
+            combinations.cacheNearJunction = cacheNearJunction;
+            combinations.cachePossibleNextJunctionLeft = cachePossibleNextJunctionLeft;
+            combinations.cachePossibleNextJunctionRight = cachePossibleNextJunctionRight;
+
+            return combinations;
+        }
+
+        private List<Line> GetLines(List<Junction> listJunction, CachedJunctionCombinations junctionCombinations) {
+            // Let's check the list of points.
+
             int numSol = 0;
 
             List<Line> possibleSol = new List<Line>();
@@ -229,7 +240,7 @@ namespace OpenFieldReader
 
                 Dictionary<int, List<int>> usedJunctionsForGapX = new Dictionary<int, List<int>>();
                 List<Line> listSolutions = new List<Line>();
-                var junctionsForGap = cacheNearJunction[start.X | start.Y << 16];
+                var junctionsForGap = junctionCombinations.cacheNearJunction[start.X | start.Y << 16];
 
                 for (int iGap = 0; iGap < junctionsForGap.Length; iGap++)
                 {
@@ -261,8 +272,8 @@ namespace OpenFieldReader
                     List<Junction> curSolution = new List<Junction>();
                     curSolution.Add(start);
 
-                    int numElementsRight = FindElementsOnDirection(cachePossibleNextJunctionRight, start, gap, gapX, curSolution);
-                    int numElementsLeft = FindElementsOnDirection(cachePossibleNextJunctionLeft, start, gap, -gapX, curSolution);
+                    int numElementsRight = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionRight, start, gap, gapX, curSolution);
+                    int numElementsLeft = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionLeft, start, gap, -gapX, curSolution);
 
                     int numElements = numElementsLeft + numElementsRight;
 
@@ -327,10 +338,7 @@ namespace OpenFieldReader
                 Console.WriteLine(possibleSol.Count + " : Best solution found");
             }
 
-            CachedJunctionCombinations sols;
-            sols.possibleSol = possibleSol;
-            sols.cacheNearJunction = cacheNearJunction;
-            return sols;
+            return possibleSol;
         }
 			
 		private OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
@@ -350,8 +358,9 @@ namespace OpenFieldReader
 
 
 
-            var CachedJunctionCombinations = CombineJunctions(cachedJunctions.listJunction, cachedJunctions.cacheListJunctionPerLine);
-			
+            var cachedJunctionCombinations = GetCombinedJunctions(cachedJunctions.listJunction, cachedJunctions.cacheListJunctionPerLine);
+
+            var possibleSol = GetLines(cachedJunctions.listJunction, cachedJunctionCombinations);
 
 			// Let's merge near junctions. (vertical line)
 			// We assign a group id for each clusters.
@@ -359,7 +368,7 @@ namespace OpenFieldReader
 			Dictionary<int, int> junctionToGroupId = new Dictionary<int, int>();
 			
 			int nextGroupId = 1;
-			foreach (var curSolution in CachedJunctionCombinations.possibleSol)
+			foreach (var curSolution in possibleSol)
 			{
 				if (curSolution.Junctions.First().GroupId == 0)
 				{
@@ -376,7 +385,7 @@ namespace OpenFieldReader
 
 					foreach (var item in curSolution.Junctions)
 					{
-						var alreadyClassified = CachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
+						var alreadyClassified = cachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
 							.Where(m =>
 								// Doesn't work with struct.
 								//m.GroupId != 0 &&
@@ -417,7 +426,7 @@ namespace OpenFieldReader
 				}
 			}
 			
-			Dictionary<int, Junction[]> junctionsPerGroup = CachedJunctionCombinations.possibleSol
+			Dictionary<int, Junction[]> junctionsPerGroup = possibleSol
 				.SelectMany(m => m.Junctions)
 				.GroupBy(m => m.GroupId)
 				.ToDictionary(m => m.Key, m => m.ToArray());

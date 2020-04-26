@@ -9,7 +9,7 @@ namespace OpenFieldReader
     {
         // Input.
 
-        [Option("input", HelpText = "Path to the image", Required = false, Default = "../../../../Samples/form3.jpg")]
+        [Option("input", HelpText = "Path to the image", Required = false, Default = "../../../../Samples/form2.jpg")]
         public string InputFile { get; set; }
 
         [Option("width", Default = 25, HelpText = "Junction minimum width")]
@@ -40,7 +40,7 @@ namespace OpenFieldReader
 
         // Debug.
 
-        [Option("generate-debug-image", Default = false, HelpText = "Generate a debug image?")]
+        [Option("generate-debug-image", Default = true, HelpText = "Generate a debug image?")]
         public bool GenerateDebugImage { get; set; }
 
         // Output.

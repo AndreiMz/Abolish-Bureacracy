@@ -28,8 +28,9 @@ namespace OpenFieldReader
         /// </summary>
         internal struct CachedJunctionCombinations
         {
-            internal Dictionary<int, Junction[]> cacheNearJunction;
-            internal List<Line> possibleSol;
+            public Dictionary<int, Junction[]> cacheNearJunction;
+            public Dictionary<int, Junction[]> cachePossibleNextJunctionRight;
+            public Dictionary<int, Junction[]> cachePossibleNextJunctionLeft;
         }
 
         internal struct CachedJunctions
