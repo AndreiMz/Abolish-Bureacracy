@@ -6,7 +6,7 @@ namespace OpenFieldReader
 {
     public class OpenFieldReaderResult
     {
-        public int ReturnCode { get; set; }
+        public string ImageHexa { get; set; }
         public List<List<Box>> Boxes { get; set; }
     }
 }

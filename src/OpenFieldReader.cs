@@ -22,28 +22,26 @@ namespace OpenFieldReader
 			this.Preprocessor = new ImagePreprocessor(options.InputFile);
 		}
 
-		public void Process()
+        public OpenFieldReaderResult Process()
 		{
 			try
 			{
-				var result = this.FindBoxes(
+				var boxes = this.FindBoxes(
 					this.Preprocessor.imgData, 
 					this.Preprocessor.imgHeight, 
 					this.Preprocessor.imgWidth, 
 					this.Options
 				);
 
-				treatFailure(result);
-
 				if (this.Options.OutputFile == "std")
 				{
 					// Show result on the console.
 
-					Console.WriteLine("Boxes: " + result.Boxes.Count);
+					Console.WriteLine("Boxes: " + boxes.Count);
 					Console.WriteLine();
 
 					int iBox = 1;
-					foreach (var box in result.Boxes)
+					foreach (var box in boxes)
 					{
 						Console.WriteLine("Box #" + iBox);
 
@@ -65,15 +63,23 @@ namespace OpenFieldReader
 				{
 					// Write result to output file.
 					var outputPath = this.Options.OutputFile;
-					var json = JsonSerializer.ToJsonString(result);
+					var json = JsonSerializer.ToJsonString(boxes);
 					File.WriteAllText(outputPath, json);
 				}
+
+                OpenFieldReaderResult result = new OpenFieldReaderResult();
+                result.Boxes = boxes;
+                result.ImageHexa = this.Preprocessor.imgHexa;
+
+                return result;
 			}
 			catch (Exception ex)
 			{
 				Console.WriteLine("File: " + this.Options.InputFile);
 				Console.WriteLine("Something wrong happen: " + ex.Message + Environment.NewLine + ex.StackTrace);
 				Environment.Exit(3);
+
+                return new OpenFieldReaderResult();
 			}
 		}
 
@@ -346,7 +352,7 @@ namespace OpenFieldReader
             return possibleSol;
         }
 			
-		private OpenFieldReaderResult FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
+		private List<List<Box>> FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
         {
             // Debug image.
             Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
@@ -382,18 +388,12 @@ namespace OpenFieldReader
                 painter.DrawBoxes(allBoxes);
             }
 
-            var finalResult = new OpenFieldReaderResult
-            {
-                Boxes = allBoxes,
-                ReturnCode = 0
-            };
-
             if (options.GenerateDebugImage)
             {
                 painter.DrawImage();
             }
 
-            return finalResult;
+            return allBoxes;
         }
 
         private List<BoxesCluster> PrototypeBoxClusters(List<LineCluster> lineClusters)
@@ -890,15 +890,6 @@ namespace OpenFieldReader
 				imgData[y + (x - 1) * row] |
 				imgData[y + x * row] |
 				imgData[y + (x + 1) * row]);
-		}
-
-		private void treatFailure(OpenFieldReaderResult result){
-			if (result.ReturnCode != 0){
-				if (this.Options.Verbose) {
-					Console.WriteLine("Exit with code: " + result.ReturnCode);
-				}
-				Environment.Exit(result.ReturnCode);
-			}
 		}
 	}
 }
