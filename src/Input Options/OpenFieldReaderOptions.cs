@@ -24,7 +24,7 @@ namespace OpenFieldReader
         [Option("min-cell-width", Default = 15, HelpText = "Min estimated cell width (should not be less than 15.)")]
         public int minX { get; set; }
 
-        [Option("max-cell-width", Default = 15, HelpText = "Max estimated cell width (should not be greater than 85. Most of the time, it can be reduced to 50 or 60.)")]
+        [Option("max-cell-width", Default = 70, HelpText = "Max estimated cell width (should not be greater than 85. Most of the time, it can be reduced to 50 or 60.)")]
         public int maxX { get; set; }
 
         [Option("y-variation", Default = 3, HelpText = "Variation of y to find next cell. (should be really small for faster result)")]
