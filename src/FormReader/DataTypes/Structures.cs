@@ -49,5 +49,16 @@ namespace FormReader
             public int GroupId { get; set; }
             public float GapX { get; set; }
         }
+
+        /// <summary>
+        /// For that spooky bitwise operator that we should probably replace
+        /// </summary>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
+        /// <returns></returns>
+        public static int BuildDictionaryId(int x, int y)
+        {
+            return x | y << 16;
+        }
     }
 }

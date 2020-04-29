@@ -54,8 +54,8 @@ namespace FormReader
             // Junction types: T, L, +.
             // Junctions allow us to find boxes contours.
 
-            int width = this.Options.JunctionWidth;
-            int height = this.Options.JunctionHeight;
+            int minJunctionWidth = this.Options.JunctionWidth;
+            int minJunctionHeight = this.Options.JunctionHeight;
 
             // Cache per line speed up the creation of various cache.
             Dictionary<int, List<Junction>> cacheListJunctionPerLine = new Dictionary<int, List<Junction>>();
@@ -68,7 +68,7 @@ namespace FormReader
 
                 for (int x = 1; x < this.Preprocessor.imgWidth - 1; x++)
                 {
-                    Junction? junction = GetJunction(this.Preprocessor.imgData, this.Preprocessor.imgHeight, this.Preprocessor.imgWidth, height, width, y, x);
+                    Junction? junction = GetJunction(this.Preprocessor.imgData, this.Preprocessor.imgHeight, this.Preprocessor.imgWidth, minJunctionHeight, minJunctionWidth, y, x);
                     if (junction != null)
                     {
                         if (listJunctionX == null)
@@ -159,7 +159,7 @@ namespace FormReader
                         )
                     .ToArray();
 
-                var id = junction.X | junction.Y << 16;
+                var id = BuildDictionaryId(junction.X, junction.Y);
 
                 cacheNearJunction.Add(id, list);
 
@@ -191,17 +191,17 @@ namespace FormReader
 
             // We use a dictionary here because we need a fast way to remove entry.
             // We reduce computation and we also merge solutions.
-            var elements = listJunction.OrderBy(m => m.Y).ToDictionary(m => m.X | m.Y << 16, m => m);
+            var elements = listJunction.OrderBy(m => m.Y).ToDictionary(m => BuildDictionaryId(m.X, m.Y ), m => m);
 
             int skipSol = 0;
             while (elements.Any())
             {
                 var start = elements.First().Value;
-                elements.Remove(start.X | start.Y << 16);
+                elements.Remove(BuildDictionaryId(start.X, start.Y));
 
                 Dictionary<int, List<int>> usedJunctionsForGapX = new Dictionary<int, List<int>>();
                 List<Line> listSolutions = new List<Line>();
-                var junctionsForGap = junctionCombinations.cacheNearJunction[start.X | start.Y << 16];
+                var junctionsForGap = junctionCombinations.cacheNearJunction[BuildDictionaryId(start.X, start.Y)];
 
                 for (int iGap = 0; iGap < junctionsForGap.Length; iGap++)
                 {
@@ -223,8 +223,8 @@ namespace FormReader
 
                     // We will reduce list of solution by checking if the solution is already found.
                     //if (listSolutions.Any(m => Math.Abs(m.GapX - gapX) < 2 && m.Junctions.Contains(start)))
-                    if (usedJunctionsForGapX.ContainsKey(gap.X | gap.Y << 16) &&
-                        usedJunctionsForGapX[gap.X | gap.Y << 16].Any(m => Math.Abs(m - gapX) < 10))
+                    if (usedJunctionsForGapX.ContainsKey(BuildDictionaryId(gap.X, gap.Y)) &&
+                        usedJunctionsForGapX[BuildDictionaryId(gap.X, gap.Y)].Any(m => Math.Abs(m - gapX) < 10))
                     {
                         skipSol++;
                         continue;
@@ -233,8 +233,8 @@ namespace FormReader
                     List<Junction> curSolution = new List<Junction>();
                     curSolution.Add(start);
 
-                    int numElementsRight = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionRight, start, gap, gapX, curSolution);
-                    int numElementsLeft = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionLeft, start, gap, -gapX, curSolution);
+                    int numElementsRight = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionRight, start, gapX, curSolution);
+                    int numElementsLeft = FindElementsOnDirection(junctionCombinations.cachePossibleNextJunctionLeft, start, -gapX, curSolution);
 
                     int numElements = numElementsLeft + numElementsRight;
 
@@ -264,14 +264,14 @@ namespace FormReader
                         foreach (var item in curSolution)
                         {
                             List<int> listGapX;
-                            if (!usedJunctionsForGapX.ContainsKey(item.X | item.Y << 16))
+                            if (!usedJunctionsForGapX.ContainsKey(BuildDictionaryId(item.X, item.Y)))
                             {
                                 listGapX = new List<int>();
-                                usedJunctionsForGapX.Add(item.X | item.Y << 16, listGapX);
+                                usedJunctionsForGapX.Add(BuildDictionaryId(item.X, item.Y), listGapX);
                             }
                             else
                             {
-                                listGapX = usedJunctionsForGapX[item.X | item.Y << 16];
+                                listGapX = usedJunctionsForGapX[BuildDictionaryId(item.X, item.Y)];
                             }
                             listGapX.Add(gapX);
                         }
@@ -286,7 +286,7 @@ namespace FormReader
                     // But, we have more solutions.
                     foreach (var item in bestSol.Junctions)
                     {
-                        elements.Remove(item.X | item.Y << 16);
+                        elements.Remove(BuildDictionaryId(item.X, item.Y));
                     }
 
                     possibleSol.Add(bestSol);
@@ -339,6 +339,7 @@ namespace FormReader
             Dictionary<LineCluster, float> cacheGapX = new Dictionary<LineCluster, float>();
 
             // Merge top and bottom lines.
+            // I could optimize this
             foreach (var itemA in lineClusters)
             {
                 foreach (var itemB in lineClusters)
@@ -351,9 +352,7 @@ namespace FormReader
                             var topLine = itemA.Top ? itemA : itemB;
                             var bottomLine = itemA.Top ? itemB : itemA;
 
-                            if (lineClustersTop.ContainsKey(topLine))
-                                continue;
-                            if (lineClustersBottom.ContainsKey(bottomLine))
+                            if (lineClustersTop.ContainsKey(topLine) || lineClustersBottom.ContainsKey(bottomLine))
                                 continue;
 
                             if (!cacheGapX.ContainsKey(itemA))
@@ -457,8 +456,7 @@ namespace FormReader
         /// <returns></returns>
         private List<List<Box>> GetBoxes(List<BoxesCluster> boxesClusters)
         {
-            // We can now merge near junctions.
-            // We want to find the centroid in order to determine the boxes dimensions and position.
+
             List<List<Box>> allBoxes = new List<List<Box>>();
             foreach (var boxesCluster in boxesClusters)
             {
@@ -531,14 +529,8 @@ namespace FormReader
 
                     if (!curPointTop.HasValue && !curPointBottom.HasValue)
                     {
+                        // This should not happen. Please open an issue on GitHub with your image.
                         throw (new Exception("This should not happen. BIG YIKES"));
-                        /*
-                        return new OpenFieldReaderResult
-                        {
-                            // This should not happen. Please open an issue on GitHub with your image.
-                            ReturnCode = 20
-                        };
-                        */
                     }
 
                     if (curBoxes == null)
@@ -602,7 +594,7 @@ namespace FormReader
 
                     foreach (var item in curSolution.Junctions)
                     {
-                        var alreadyClassified = cachedJunctionCombinations.cacheNearJunction[item.X | item.Y << 16]
+                        var alreadyClassified = cachedJunctionCombinations.cacheNearJunction[BuildDictionaryId(item.X, item.Y)]
                             .Where(m =>
                                 // Doesn't work with struct.
                                 //m.GroupId != 0 &&
@@ -610,11 +602,11 @@ namespace FormReader
                                 Math.Abs(m.Y - item.Y) <= 3
                             // Doesn't work with struct.
                             //Math.Abs(m.GapX - item.GapX) <= 2
-                            ).Where(m => junctionToGroupId.ContainsKey(m.X | m.Y << 16));
+                            ).Where(m => junctionToGroupId.ContainsKey(BuildDictionaryId(m.X, m.Y)));
                         if (alreadyClassified.Any())
                         {
                             Junction junction = alreadyClassified.First();
-                            groupId = junctionToGroupId[junction.X | junction.Y << 16];
+                            groupId = junctionToGroupId[BuildDictionaryId(junction.X, junction.Y)];
                             //groupId = alreadyClassified.First().GroupId;
                             break;
                         }
@@ -634,7 +626,7 @@ namespace FormReader
                     {
                         ref var j = ref curSolution.Junctions[i];
                         j.GroupId = groupId;
-                        int id = j.X | j.Y << 16;
+                        int id = BuildDictionaryId(j.X, j.Y);
                         if (!junctionToGroupId.ContainsKey(id))
                         {
                             junctionToGroupId.Add(id, groupId);
@@ -705,13 +697,13 @@ namespace FormReader
                 var curBoxes = allBoxes[i];
 
                 var minWidth = curBoxes.Min(m =>
-                    ((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
+                    (m.GetWidth()));
                 var minHeight = curBoxes.Min(m =>
-                    ((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
+                    (m.GetHeight()));
                 var maxWidth = curBoxes.Max(m =>
-                    ((m.TopRight.X + m.BottomRight.X) / 2) - ((m.TopLeft.X + m.BottomLeft.X) / 2));
+                    (m.GetWidth()));
                 var maxHeight = curBoxes.Max(m =>
-                    ((m.BottomRight.Y + m.BottomLeft.Y) / 2) - ((m.TopRight.Y + m.TopLeft.Y) / 2));
+                    (m.GetHeight()));
 
                 // HARDCODED FILTH
                 // If the width and height are too different, we should not consider the boxes.
@@ -733,12 +725,12 @@ namespace FormReader
             }
         }
 
-        private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap, int gapX, List<Junction> curSolution)
+        private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, int gapX, List<Junction> curSolution)
         {
             int numElements = 0;
             var x = start.X;
             var y = start.Y;
-            Junction[] remainingList = cacheNearJunction[start.X | start.Y << 16];
+            Junction[] remainingList = cacheNearJunction[BuildDictionaryId(start.X, start.Y)];
 
             // We prefer a distX of 0.
 
@@ -757,7 +749,7 @@ namespace FormReader
                     numElements++;
                     curSolution.Add(cur);
 
-                    remainingList = cacheNearJunction[cur.X | cur.Y << 16];
+                    remainingList = cacheNearJunction[BuildDictionaryId(cur.X, cur.Y)];
                     x = curX;
                     y = curY;
 
