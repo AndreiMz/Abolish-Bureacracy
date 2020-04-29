@@ -5,7 +5,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp;
 using static OpenFieldReader.Structures;
 
-namespace OpenFieldReader{
+namespace OpenFieldReader.Debugger {
     internal class Painter{
         private static int nextGroupId = 0;
         private int [,] debugImg;

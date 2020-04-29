@@ -8,86 +8,53 @@ using System.Linq;
 using System.Threading;
 using SixLabors.ImageSharp.PixelFormats;
 using static OpenFieldReader.Structures;
-using static OpenFieldReader.Painter;
 using Utf8Json;
+using OpenFieldReader.Debugger;
 
 namespace OpenFieldReader
 {
-	public class OpenFieldReader
-	{
-		private OpenFieldReaderOptions Options;
-		private ImagePreprocessor Preprocessor;
-		public OpenFieldReader(OpenFieldReaderOptions options){
-			this.Options = options;
-			this.Preprocessor = new ImagePreprocessor(options.InputFile);
-		}
+    public class OpenFieldReader
+    {
+        private OpenFieldReaderOptions Options;
+        private ImagePreprocessor Preprocessor;
+        // this here cause annoying compielr warning
+        private Painter Painter = null;
+
+        private Logger Logger;
+        public OpenFieldReader(OpenFieldReaderOptions options)
+        {
+            this.Options = options;
+            this.Preprocessor = new ImagePreprocessor(options.InputFile);
+            // Debug image.
+            this.Painter = options.GenerateDebugImage ? new Painter(this.Preprocessor.imgHeight, this.Preprocessor.imgWidth) : null;
+            this.Logger = options.Verbose ? new Logger(options) : null;
+        }
 
         public OpenFieldReaderResult Process()
-		{
-			try
-			{
-				var boxes = this.FindBoxes(
-					this.Preprocessor.imgData, 
-					this.Preprocessor.imgHeight, 
-					this.Preprocessor.imgWidth, 
-					this.Options
-				);
+        {
+            var boxes = this.FindBoxes(
+                    this.Preprocessor.imgData,
+                    this.Preprocessor.imgHeight,
+                    this.Preprocessor.imgWidth,
+                    this.Options
+                );
 
-				if (this.Options.OutputFile == "std")
-				{
-					// Show result on the console.
+            if (Options.Verbose)
+            {
+                this.Logger.LogResult(boxes);
+            }
+            
 
-					Console.WriteLine("Boxes: " + boxes.Count);
-					Console.WriteLine();
+            OpenFieldReaderResult result = new OpenFieldReaderResult();
+            result.Boxes = boxes;
+            result.ImageHexa = this.Preprocessor.imgHexa;
 
-					int iBox = 1;
-					foreach (var box in boxes)
-					{
-						Console.WriteLine("Box #" + iBox);
+            return result;
 
-						foreach (var element in box)
-						{
-							Console.WriteLine("  Element: " +
-								element.TopLeft + "; " +
-								element.TopRight + "; " +
-								element.BottomRight + "; " +
-								element.BottomLeft);
-						}
+        }
 
-						iBox++;
-					}
-					Console.WriteLine("Press any key to continue...");
-					Console.ReadLine();
-				}
-				else
-				{
-					// Write result to output file.
-					var outputPath = this.Options.OutputFile;
-					var json = JsonSerializer.ToJsonString(boxes);
-					File.WriteAllText(outputPath, json);
-				}
-
-                OpenFieldReaderResult result = new OpenFieldReaderResult();
-                result.Boxes = boxes;
-                result.ImageHexa = this.Preprocessor.imgHexa;
-
-                return result;
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine("File: " + this.Options.InputFile);
-				Console.WriteLine("Something wrong happen: " + ex.Message + Environment.NewLine + ex.StackTrace);
-				Environment.Exit(3);
-
-                return new OpenFieldReaderResult();
-			}
-		}
-
-        /// <summary>
-        /// Should this have parameters? We need to decide on pattern!
-        /// </summary>
-        /// <returns></returns>
-        private CachedJunctions FindJunctions() {
+        private CachedJunctions FindJunctions()
+        {
             // TODO: Hardcoded Filth
             // If there is too much junction near each other, maybe it's just a black spot.
             // We must ignore it to prevent wasting CPU and spend too much time.
@@ -163,15 +130,8 @@ namespace OpenFieldReader
                 // Something wrong happen. Too much junction for now.
                 // If we continue, we would spend too much time processing the image.
                 // Let's suppose we don't know.
+                // Too many junctions. The image seem too complex. You may want to increase MaxJunctions
                 throw (new Exception("Too many Junctions"));
-                /* Old Version, i prefer throw.
-                return new OpenFieldReaderResult
-                {
-
-                    // Too many junctions. The image seem too complex. You may want to increase MaxJunctions
-                    ReturnCode = 10
-                };
-                */
             }
 
             CachedJunctions junctions;
@@ -181,13 +141,14 @@ namespace OpenFieldReader
 
             if (this.Options.Verbose)
             {
-                Console.WriteLine("Junction.count: " + listJunction.Count);
+                Logger.LogGenericMessage("Junction.count: " + listJunction.Count);
             }
 
             return junctions;
         }
 
-        private CachedJunctionCombinations GetCombinedJunctions(List<Junction> listJunction, Dictionary<int, List<Junction>> cacheListJunctionPerLine) {
+        private CachedJunctionCombinations GetCombinedJunctions(List<Junction> listJunction, Dictionary<int, List<Junction>> cacheListJunctionPerLine)
+        {
             // Let's check the list of points.
 
             // Prepare cache to speedup searching algo.
@@ -232,7 +193,8 @@ namespace OpenFieldReader
             return combinations;
         }
 
-        private List<Line> GetLines(List<Junction> listJunction, CachedJunctionCombinations junctionCombinations) {
+        private List<Line> GetLines(List<Junction> listJunction, CachedJunctionCombinations junctionCombinations)
+        {
             // Let's check the list of points.
 
             int numSol = 0;
@@ -343,19 +305,18 @@ namespace OpenFieldReader
                 }
             }
 
-            if (this.Options.Verbose) {
-                Console.WriteLine("Skip solutions counter: " + skipSol);
-                Console.WriteLine(numSol + " : Solution found");
-                Console.WriteLine(possibleSol.Count + " : Best solution found");
+            if (this.Options.Verbose)
+            {
+                this.Logger.LogSolutions(numSol, possibleSol, skipSol);
             }
 
             return possibleSol;
         }
-			
-		private List<List<Box>> FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
+
+
+        private List<List<Box>> FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
         {
-            // Debug image.
-            Painter painter = options.GenerateDebugImage ? new Painter(row, col) : null;
+
 
             // Cache per line speed up the creation of various cache.
             CachedJunctions cachedJunctions = this.FindJunctions();
@@ -369,28 +330,13 @@ namespace OpenFieldReader
 
             List<BoxesCluster> boxesClusters = PrototypeBoxClusters(lineClusters);
 
-            // I kinda wanna move these inside the functions
-            // but then the painter has to be at class level. Ish.
-            // Maybe that is better
-            if (options.GenerateDebugImage)
-            {
-                painter.DrawJunctions(lineClusters, boxesClusters);
-            }
-
-            // We can now merge near junctions.
-            // We want to find the centroid in order to determine the boxes dimensions and position.
             List<List<Box>> allBoxes = GetBoxes(boxesClusters);
 
             RemoveInvalidBoxes(allBoxes);
 
             if (options.GenerateDebugImage)
             {
-                painter.DrawBoxes(allBoxes);
-            }
-
-            if (options.GenerateDebugImage)
-            {
-                painter.DrawImage();
+                this.Painter.DrawImage();
             }
 
             return allBoxes;
@@ -506,10 +452,21 @@ namespace OpenFieldReader
                 }
             }
 
+            if (this.Options.GenerateDebugImage)
+            {
+                this.Painter.DrawJunctions(lineClusters, boxesClusters);
+            }
+
             return boxesClusters;
         }
 
 
+        /// <summary>
+        // We can now merge near junctions.
+        // We want to find the centroid in order to determine the boxes dimensions and position.
+        /// </summary>
+        /// <param name="boxesClusters"></param>
+        /// <returns></returns>
         private List<List<Box>> GetBoxes(List<BoxesCluster> boxesClusters)
         {
             // We can now merge near junctions.
@@ -781,115 +738,120 @@ namespace OpenFieldReader
                     i--;
                 }
             }
+
+            if (this.Options.GenerateDebugImage)
+            {
+                this.Painter.DrawBoxes(allBoxes);
+            }
         }
 
-        private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap,int gapX, List<Junction> curSolution)
-		{
-			int numElements = 0;
-			var x = start.X;
-			var y = start.Y;
-			Junction[] remainingList = cacheNearJunction[start.X | start.Y << 16];
-			
-			// We prefer a distX of 0.
+        private static int FindElementsOnDirection(Dictionary<int, Junction[]> cacheNearJunction, Junction start, Junction gap, int gapX, List<Junction> curSolution)
+        {
+            int numElements = 0;
+            var x = start.X;
+            var y = start.Y;
+            Junction[] remainingList = cacheNearJunction[start.X | start.Y << 16];
 
-			for (int iNext = 0; iNext < remainingList.Length; iNext++)
-			{
-				var cur = remainingList[iNext];
-				var curX = cur.X;
-				var curY = cur.Y;
+            // We prefer a distX of 0.
 
-				int distX = Math.Abs(x + gapX - curX);
+            for (int iNext = 0; iNext < remainingList.Length; iNext++)
+            {
+                var cur = remainingList[iNext];
+                var curX = cur.X;
+                var curY = cur.Y;
 
-				// TODO: should be a parameter
-				// If you use dilatation, it should be distX == 0. (faster)
-				if (distX <= 0)
-				{
-					numElements++;
-					curSolution.Add(cur);
+                int distX = Math.Abs(x + gapX - curX);
 
-					remainingList = cacheNearJunction[cur.X | cur.Y << 16];
-					x = curX;
-					y = curY;
+                // TODO: should be a parameter
+                // If you use dilatation, it should be distX == 0. (faster)
+                if (distX <= 0)
+                {
+                    numElements++;
+                    curSolution.Add(cur);
 
-					iNext = -1;
-					continue;
-				}
-			}
+                    remainingList = cacheNearJunction[cur.X | cur.Y << 16];
+                    x = curX;
+                    y = curY;
 
-			// No element found or the end.
-			return numElements;
-		}
+                    iNext = -1;
+                    continue;
+                }
+            }
 
-		private static Junction? GetJunction(int[] imgData, int row, int col, int height, int width, int y, int x)
-		{
-			var val = GetVal(imgData, y, x, row);
-			if (0 < val)
-			{
-				// Let's explore the directions.
+            // No element found or the end.
+            return numElements;
+        }
 
-				byte numTop = 0;
-				if (y - height >= 1)
-					for (int i = 0; i < height; i++)
-						if (GetVal(imgData, y - i, x, row) == val)
-							numTop++;
-						else
-							break;
+        private static Junction? GetJunction(int[] imgData, int row, int col, int height, int width, int y, int x)
+        {
+            var val = GetVal(imgData, y, x, row);
+            if (0 < val)
+            {
+                // Let's explore the directions.
 
-				byte numBottom = 0;
-				if (y + height < row - 1)
-					for (int i = 0; i < height; i++)
-						if (GetVal(imgData, y + i, x, row) == val)
-							numBottom++;
-						else
-							break;
+                byte numTop = 0;
+                if (y - height >= 1)
+                    for (int i = 0; i < height; i++)
+                        if (GetVal(imgData, y - i, x, row) == val)
+                            numTop++;
+                        else
+                            break;
 
-				byte numRight = 0;
-				if (x + width < col - 1)
-					for (int i = 0; i < width; i++)
-						if (GetVal(imgData, y, x + i, row) == val)
-							numRight++;
-						else
-							break;
+                byte numBottom = 0;
+                if (y + height < row - 1)
+                    for (int i = 0; i < height; i++)
+                        if (GetVal(imgData, y + i, x, row) == val)
+                            numBottom++;
+                        else
+                            break;
 
-				byte numLeft = 0;
-				if (x - width >= 1)
-					for (int i = 0; i < width; i++)
-						if (GetVal(imgData, y, x - i, row) == val)
-							numLeft++;
-						else
-							break;
+                byte numRight = 0;
+                if (x + width < col - 1)
+                    for (int i = 0; i < width; i++)
+                        if (GetVal(imgData, y, x + i, row) == val)
+                            numRight++;
+                        else
+                            break;
 
-				var top = numTop >= height;
-				var bottom = numBottom >= height;
-				var left = numLeft >= width;
-				var right = numRight >= width;
+                byte numLeft = 0;
+                if (x - width >= 1)
+                    for (int i = 0; i < width; i++)
+                        if (GetVal(imgData, y, x - i, row) == val)
+                            numLeft++;
+                        else
+                            break;
 
-				if ((top || bottom) && (left || right))
-				{
-					return new Junction
-					{
-						Bottom = bottom,
-						Left = left,
-						Right = right,
-						Top = top,
-						NumBottom = numBottom,
-						NumLeft = numLeft,
-						NumRight = numRight,
-						NumTop = numTop,
-						X = x,
-						Y = y
-					};
-				}
-			}
-			return null;
-		}
+                var top = numTop >= height;
+                var bottom = numBottom >= height;
+                var left = numLeft >= width;
+                var right = numRight >= width;
 
-		private static int GetVal(int[] imgData, int y, int x, int row)
-		{
-			return (
-				imgData[y + (x - 1) * row] |
-				imgData[y + x * row] |
-				imgData[y + (x + 1) * row]);
-		}
-	}
+                if ((top || bottom) && (left || right))
+                {
+                    return new Junction
+                    {
+                        Bottom = bottom,
+                        Left = left,
+                        Right = right,
+                        Top = top,
+                        NumBottom = numBottom,
+                        NumLeft = numLeft,
+                        NumRight = numRight,
+                        NumTop = numTop,
+                        X = x,
+                        Y = y
+                    };
+                }
+            }
+            return null;
+        }
+
+        private static int GetVal(int[] imgData, int y, int x, int row)
+        {
+            return (
+                imgData[y + (x - 1) * row] |
+                imgData[y + x * row] |
+                imgData[y + (x + 1) * row]);
+        }
+    }
 }

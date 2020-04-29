@@ -46,9 +46,9 @@ namespace OpenFieldReader
         // Output.
 
         [Option("output", Default = "std", HelpText = "Output type (std or path file)")]
-        public string OutputFile { get; set; }
+        public string OutputPath { get; set; }
 
-        [Option("verbose", Default = false, HelpText = "Verbose")]
+        [Option("verbose", Default = true, HelpText = "Verbose")]
         public bool Verbose { get; set; }
     }
 }
