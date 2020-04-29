@@ -1,24 +1,20 @@
 ﻿using CommandLine;
-using SixLabors.ImageSharp;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using Utf8Json;
 
-namespace OpenFieldReader
+namespace FormReader
 {
-	class Program
+    class Program
     {
         static void Main(string[] args)
 		{
-			Parser.Default.ParseArguments<OpenFieldReaderOptions>(args)
+			Parser.Default.ParseArguments<FormReaderOptions>(args)
 				.WithParsed(opts => Run(opts))
 				.WithNotParsed(errs => HandleErrors(errs));
 		}
 
-		private static void Run(OpenFieldReaderOptions opts){
-			var openFieldReader = new OpenFieldReader(opts);
+		private static void Run(FormReaderOptions opts){
+			var openFieldReader = new FormReader(opts);
 			openFieldReader.Process();
 		}
 

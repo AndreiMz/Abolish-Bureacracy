@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using static OpenFieldReader.Structures;
+using static FormReader.Structures;
 
-namespace OpenFieldReader
+namespace FormReader
 { 
     internal class Line 
     {

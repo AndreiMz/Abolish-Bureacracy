@@ -1,12 +1,9 @@
 using System;
-using System.Collections.Generic;
-using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
-using static OpenFieldReader.Structures;
 
-namespace OpenFieldReader
+namespace FormReader
 { 
     class ImagePreprocessor{
         public int imgHeight { get; private set;}
@@ -22,8 +19,6 @@ namespace OpenFieldReader
                     // FILTHY HARDCODING. IS PNG BEST?
                     this.imgHexa = image.ToBase64String(PngFormat.Instance);
                     this.imgData = grabDataFromImage(image);
-
-                    //	var result = OpenFieldReader.FindBoxes(this.imgData, this.imgHeight, this.imgWidth, options);
 
                 }
                 

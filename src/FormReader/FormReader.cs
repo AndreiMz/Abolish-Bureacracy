@@ -1,27 +1,20 @@
-﻿using CommandLine;
-using SixLabors.ImageSharp;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Threading;
-using SixLabors.ImageSharp.PixelFormats;
-using static OpenFieldReader.Structures;
-using Utf8Json;
-using OpenFieldReader.Debugger;
+using static FormReader.Structures;
+using FormReader.Debugger;
 
-namespace OpenFieldReader
+namespace FormReader
 {
-    public class OpenFieldReader
+    public class FormReader
     {
-        private OpenFieldReaderOptions Options;
+        private FormReaderOptions Options;
         private ImagePreprocessor Preprocessor;
         // this here cause annoying compielr warning
         private Painter Painter = null;
 
         private Logger Logger;
-        public OpenFieldReader(OpenFieldReaderOptions options)
+        public FormReader(FormReaderOptions options)
         {
             this.Options = options;
             this.Preprocessor = new ImagePreprocessor(options.InputFile);
@@ -30,14 +23,9 @@ namespace OpenFieldReader
             this.Logger = options.Verbose ? new Logger(options) : null;
         }
 
-        public OpenFieldReaderResult Process()
+        public FormReaderResult Process()
         {
-            var boxes = this.FindBoxes(
-                    this.Preprocessor.imgData,
-                    this.Preprocessor.imgHeight,
-                    this.Preprocessor.imgWidth,
-                    this.Options
-                );
+            var boxes = this.FindBoxes();
 
             if (Options.Verbose)
             {
@@ -45,7 +33,7 @@ namespace OpenFieldReader
             }
             
 
-            OpenFieldReaderResult result = new OpenFieldReaderResult();
+            FormReaderResult result = new FormReaderResult();
             result.Boxes = boxes;
             result.ImageHexa = this.Preprocessor.imgHexa;
 
@@ -314,7 +302,7 @@ namespace OpenFieldReader
         }
 
 
-        private List<List<Box>> FindBoxes(int[] imgData, int row, int col, OpenFieldReaderOptions options)
+        private List<List<Box>> FindBoxes()
         {
 
 
@@ -334,7 +322,7 @@ namespace OpenFieldReader
 
             RemoveInvalidBoxes(allBoxes);
 
-            if (options.GenerateDebugImage)
+            if (this.Options.GenerateDebugImage)
             {
                 this.Painter.DrawImage();
             }

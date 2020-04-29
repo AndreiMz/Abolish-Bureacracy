@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using Utf8Json;
 
-namespace OpenFieldReader.Debugger
+namespace FormReader.Debugger
 {
     /// <summary>
     /// Preserves debugging messages from olden times. Not an error logger
@@ -14,7 +14,7 @@ namespace OpenFieldReader.Debugger
         private string OutputPath;
         private TextWriter consoleBuffer;
 
-        public Logger(OpenFieldReaderOptions options)
+        public Logger(FormReaderOptions options)
         {
             this.OutputPath = options.OutputPath;
         }

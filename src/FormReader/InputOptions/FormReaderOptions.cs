@@ -3,9 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace OpenFieldReader
+namespace FormReader
 {
-    public class OpenFieldReaderOptions
+    public class FormReaderOptions
     {
         // Input.
 

@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29326.143
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenFieldReader", "OpenFieldReader.csproj", "{CF89232E-28CE-40B1-A7BB-B97CEE8BAD57}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FormReader", "FormReader.csproj", "{CF89232E-28CE-40B1-A7BB-B97CEE8BAD57}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

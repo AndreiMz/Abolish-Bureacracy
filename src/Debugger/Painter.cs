@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp;
-using static OpenFieldReader.Structures;
+using static FormReader.Structures;
 
-namespace OpenFieldReader.Debugger {
+namespace FormReader.Debugger {
     internal class Painter{
         private static int nextGroupId = 0;
         private int [,] debugImg;

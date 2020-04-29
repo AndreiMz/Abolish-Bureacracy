@@ -1,8 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System.Collections.Generic;
 
-namespace OpenFieldReader
+namespace FormReader
 {
     public class Structures
     {
@@ -23,9 +21,6 @@ namespace OpenFieldReader
             }
         }
 
-        /// <summary>
-        ///  At this point we might wanna do this differently
-        /// </summary>
         internal struct CachedJunctionCombinations
         {
             public Dictionary<int, Junction[]> cacheNearJunction;
