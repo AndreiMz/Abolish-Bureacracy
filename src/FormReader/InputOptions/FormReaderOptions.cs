@@ -30,7 +30,13 @@ namespace FormReader
         [Option("y-variation", Default = 3, HelpText = "Variation of y to find next cell. (should be really small for faster result)")]
         public int variationY { get; set; }
 
+        [Option("min-element-perecent", Default = 60, HelpText = "Minimum percent of elements to determine the direction")]
+        public int minElementPercent { get; set; }
+
         // These properties prevent wasting CPU on complex image.
+
+        [Option("max-proximity", Default = 10, HelpText = "Helps Speed up CPU by discarding black spots earlier in the process")]
+        public int maxProximity { get; set; }
 
         [Option("max-junctions", Default = 20000, HelpText = "Maximum number of junctions allowed.")]
         public int MaxJunctions { get; set; }

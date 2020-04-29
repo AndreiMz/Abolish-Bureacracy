@@ -41,18 +41,16 @@ namespace FormReader
 
         }
 
+        /// <summary>
+        /// We are seaching for pattern!
+        /// We look for junctions.
+        /// This will help us make a decision.
+        /// Junction types: T, L, +.
+        /// Junctions allow us to find boxes contours.
+        /// </summary>
+        /// <returns></returns>
         private CachedJunctions FindJunctions()
         {
-            // TODO: Hardcoded Filth
-            // If there is too much junction near each other, maybe it's just a black spot.
-            // We must ignore it to prevent wasting CPU and spend too much time.
-            int maxProximity = 10;
-
-            // We are seaching for pattern!
-            // We look for junctions.
-            // This will help us make a decision.
-            // Junction types: T, L, +.
-            // Junctions allow us to find boxes contours.
 
             int minJunctionWidth = this.Options.JunctionWidth;
             int minJunctionHeight = this.Options.JunctionHeight;
@@ -82,7 +80,7 @@ namespace FormReader
                     {
                         if (listJunctionX != null)
                         {
-                            if (proximityCounter < maxProximity)
+                            if (proximityCounter < this.Options.maxProximity)
                             {
                                 if (!cacheListJunctionPerLine.ContainsKey(y))
                                 {
@@ -101,7 +99,7 @@ namespace FormReader
                     }
                 }
 
-                if (proximityCounter < maxProximity && listJunctionX != null)
+                if (proximityCounter < this.Options.maxProximity && listJunctionX != null)
                 {
                     if (!cacheListJunctionPerLine.ContainsKey(y))
                     {
@@ -364,6 +362,7 @@ namespace FormReader
                             var secondGapX = cacheGapX[itemB];
 
                             // GapX should be similar. Otherwise, just ignore it.
+                            // TODO: I don't even know how to start fixing THIS filthy hardcoding
                             if (Math.Abs(firstGapX - secondGapX) <= 2 && Math.Abs(itemA.X - itemB.X) < 200)
                             {
                                 var avgGapX = (firstGapX + secondGapX) / 2;
@@ -598,6 +597,7 @@ namespace FormReader
                             .Where(m =>
                                 // Doesn't work with struct.
                                 //m.GroupId != 0 &&
+                                //TODO: More hardcoding
                                 Math.Abs(m.X - item.X) <= 5 &&
                                 Math.Abs(m.Y - item.Y) <= 3
                             // Doesn't work with struct.
@@ -615,7 +615,6 @@ namespace FormReader
                     if (groupId == 0)
                     {
                         // Not found.
-
                         // Create a new group.
                         nextGroupId++;
 
@@ -642,14 +641,14 @@ namespace FormReader
             return junctionsPerGroup;
         }
 
-        private static List<LineCluster> HorizontalGroupLines(Dictionary<int, Junction[]> junctionsPerGroup)
+        /// <summary>
+        /// Let's explore the clusters directions and try to interconnect clusters on the horizontal side.
+        /// </summary>
+        /// <param name="junctionsPerGroup"></param>
+        /// <returns></returns>
+        private List<LineCluster> HorizontalGroupLines(Dictionary<int, Junction[]> junctionsPerGroup)
         {
-            // Let's explore the clusters directions and try to interconnect clusters on the horizontal side.
-
-            // Minimum percent of elements to determine the direction.
-            // FILTHY HARDCODING
-            int minElementPercent = 60;
-
+            
             List<LineCluster> lineClusters = new List<LineCluster>();
 
             foreach (var item in junctionsPerGroup)
@@ -657,7 +656,7 @@ namespace FormReader
                 int groupId = item.Key;
                 Junction[] junctions = item.Value;
 
-                int minElementDir = minElementPercent * junctions.Length / 100;
+                int minElementDir = this.Options.minElementPercent * junctions.Length / 100;
 
                 // Determine the general direction.
                 var top = junctions.Count(m => m.Top) > minElementDir;
